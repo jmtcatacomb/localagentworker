@@ -1,0 +1,50 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+if (process.platform !== 'linux') throw new Error('install-systemd.mjs only supports Linux');
+const root = path.resolve(process.env.AGENTWORKS_ROOT);
+const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR);
+const env = Object.fromEntries(fs.readFileSync(path.join(stateDir, 'config/master.env'), 'utf8').split('\n').filter(Boolean).map(line => line.split(/=(.*)/s).slice(0, 2)));
+const runtime = process.env.AGENTWORKS_LINUX_RUNTIME || (commandExists('incus') ? 'incus' : commandExists('lxc') ? 'lxd' : '');
+if (!runtime) throw new Error('Incus/LXD runtime is unavailable; install and initialize it before installing the Worker service');
+const node = process.execPath;
+const port = env.MASTER_PORT || '8080';
+const adapter = path.join(root, 'worker/runtime/incus-limactl');
+const user = process.env.SUDO_USER || process.env.USER || os.userInfo().username;
+const home = os.homedir();
+const unitName = 'agentworks-localagentworker.service';
+const unitPath = path.join(stateDir, 'generated', unitName);
+const environment = {
+  HOME: home,
+  PATH: `${path.dirname(node)}:/usr/local/bin:/usr/bin:/bin`,
+  WORKER_ID: process.env.WORKER_ID || 'linux-local',
+  WORKER_TOKEN: env.WORKER_TOKEN,
+  MASTER_AGENT_TOKEN: env.MASTER_AGENT_TOKEN,
+  MASTER_AGENT_URL: `http://127.0.0.1:${port}`,
+  AGENTWORKS_ROOT: root,
+  AGENTWORKS_STATE_DIR: stateDir,
+  MASTER_WS_URL: `ws://127.0.0.1:${port}/ws/worker`,
+  HOST_RUNTIME: runtime,
+  AGENTWORKS_LINUX_RUNTIME: runtime,
+  AGENTWORKS_INCUS_BIN: runtime === 'lxd' ? 'lxc' : 'incus',
+  LIMACTL_BIN: adapter,
+  LIMA_HOME: path.join(stateDir, 'runtime'),
+  AUTO_PROVISION: 'true',
+  AUTO_CELLS: 'aw-a1,aw-b1',
+};
+const quoted = value => String(value).replaceAll('"', '\\"');
+const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
+const runtimeGroup = runtime === 'incus' ? 'incus-admin' : 'lxd';
+const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'}\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\nExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\nNoNewPrivileges=true\n\n[Install]\nWantedBy=multi-user.target\n`;
+fs.mkdirSync(path.dirname(unitPath), { recursive: true });
+fs.writeFileSync(unitPath, unit, { mode: 0o600 });
+execFileSync('sudo', ['install', '-m', '0644', unitPath, `/etc/systemd/system/${unitName}`], { stdio: 'inherit' });
+execFileSync('sudo', ['systemctl', 'daemon-reload'], { stdio: 'inherit' });
+execFileSync('sudo', ['systemctl', 'enable', '--now', unitName], { stdio: 'inherit' });
+console.log(`localagentworker installed: /etc/systemd/system/${unitName}`);
+
+function commandExists(command) {
+  try { execFileSync('which', [command], { stdio: 'ignore' }); return true; } catch { return false; }
+}

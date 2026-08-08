@@ -1,0 +1,175 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+STATE_DIR=${AGENTWORKS_STATE_DIR:-"$ROOT/.agentworks"}
+ENV_FILE="$STATE_DIR/config/master.env"
+LABEL="dev.agentworks.localagentworker"
+
+compose() {
+  docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" "$@"
+}
+
+bootstrap_config() {
+  mkdir -p "$STATE_DIR/config" "$STATE_DIR/postgres" "$STATE_DIR/logs" "$STATE_DIR/generated" "$STATE_DIR/master-agent-home" "$STATE_DIR/lima"
+  if command -v node >/dev/null 2>&1; then
+    AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/bootstrap.mjs"
+  else
+    docker run --rm -u "$(id -u):$(id -g)" -e AGENTWORKS_STATE_DIR=/workspace/.agentworks -v "$ROOT:/workspace" -w /workspace node:24-alpine node scripts/bootstrap.mjs
+  fi
+}
+
+setup_worker() {
+  if [ "$(uname -s)" = "Linux" ]; then setup_worker_linux; return; fi
+  if [ "$(uname -s)" != "Darwin" ]; then echo "Host Worker is currently supported on macOS and Linux only." >&2; return 1; fi
+  if ! command -v limactl >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then
+      brew install lima
+    else
+      echo "Host Worker pending: Lima is missing and Homebrew is unavailable."
+      echo "Master Console is running; install Lima and rerun: ./agentworks setup-worker"
+      return 0
+    fi
+  fi
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    echo "Host Worker pending: Node.js 22+ is required by the Mac MVP worker."
+    echo "The production bootstrap will replace this with a self-contained worker binary."
+    return 0
+  fi
+  npm install --prefix "$ROOT/worker" --omit=dev
+  AGENTWORKS_ROOT="$ROOT" AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/install-launchd.mjs"
+}
+
+setup_worker_linux() {
+  if ! command -v systemctl >/dev/null 2>&1; then echo "Host Worker pending: systemd is required." >&2; return 1; fi
+  RUNTIME="${AGENTWORKS_LINUX_RUNTIME:-}"
+  if [ -z "$RUNTIME" ]; then
+    if command -v incus >/dev/null 2>&1; then RUNTIME=incus
+    elif command -v lxc >/dev/null 2>&1; then RUNTIME=lxd
+    else RUNTIME=incus; fi
+  fi
+  if [ "$RUNTIME" = "incus" ] && ! command -v incus >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y incus qemu-system
+      sudo incus admin init --minimal
+      sudo usermod -aG incus-admin "${SUDO_USER:-$USER}"
+    else
+      echo "Host Worker pending: RPM hosts require an initialized Incus-compatible runtime. Set AGENTWORKS_LINUX_RUNTIME=lxd after installing LXD, then rerun setup-worker." >&2
+      echo "Agentworks refuses to silently replace VM isolation with containers." >&2
+      return 1
+    fi
+  fi
+  if [ "$RUNTIME" = "lxd" ] && ! command -v lxc >/dev/null 2>&1; then echo "Host Worker pending: lxc/LXD is unavailable." >&2; return 1; fi
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then echo "Host Worker pending: Node.js 22+ is required." >&2; return 1; fi
+  chmod 755 "$ROOT/worker/runtime/incus-limactl"
+  npm install --prefix "$ROOT/worker" --omit=dev
+  AGENTWORKS_ROOT="$ROOT" AGENTWORKS_STATE_DIR="$STATE_DIR" AGENTWORKS_LINUX_RUNTIME="$RUNTIME" node "$ROOT/scripts/install-systemd.mjs"
+}
+
+case "${1:-help}" in
+  install)
+    command -v docker >/dev/null 2>&1 || { echo "Docker is required." >&2; exit 1; }
+    bootstrap_config
+    compose up -d --build
+    setup_worker
+    "$0" status
+    "$0" credentials
+    echo "Open: http://127.0.0.1:$(awk -F= '$1=="MASTER_PORT"{print $2}' "$ENV_FILE")"
+    ;;
+  setup-worker)
+    bootstrap_config
+    setup_worker
+    ;;
+  import-claude-oauth)
+    bootstrap_config
+    AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/import-claude-oauth.mjs"
+    ;;
+  upgrade|repair)
+    bootstrap_config
+    compose up -d --build
+    setup_worker
+    "$0" doctor
+    ;;
+  start)
+    bootstrap_config
+    compose up -d
+    setup_worker
+    ;;
+  stop)
+    if [ "$(uname -s)" = "Darwin" ]; then
+      launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+    elif [ "$(uname -s)" = "Linux" ]; then
+      sudo systemctl stop agentworks-localagentworker >/dev/null 2>&1 || true
+    fi
+    compose down
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    bootstrap_config
+    compose ps
+    if [ "$(uname -s)" = "Darwin" ]; then
+      launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && echo "localagentworker: running" || echo "localagentworker: stopped"
+    elif [ "$(uname -s)" = "Linux" ]; then
+      systemctl is-active --quiet agentworks-localagentworker && echo "localagentworker: running" || echo "localagentworker: stopped"
+    fi
+    ;;
+  logs)
+    bootstrap_config
+    compose logs -f --tail=100 master postgres
+    ;;
+  worker-logs)
+    touch "$STATE_DIR/logs/worker.log" "$STATE_DIR/logs/worker.error.log"
+    if [ "$(uname -s)" = "Linux" ]; then sudo journalctl -u agentworks-localagentworker -f --no-pager; else tail -f "$STATE_DIR/logs/worker.log" "$STATE_DIR/logs/worker.error.log"; fi
+    ;;
+  smoke)
+    bootstrap_config
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+    node "$ROOT/scripts/smoke.mjs"
+    compose exec -T master sh -lc 'codex --version && claude --version'
+    for CELL in aw-a1 aw-b1; do
+      if [ "$(uname -s)" = "Darwin" ]; then LIMA_HOME="$STATE_DIR/lima" limactl shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'
+      else "$ROOT/worker/runtime/incus-limactl" shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'; fi
+    done
+    echo "Agentworks smoke: ok"
+    ;;
+  credentials)
+    bootstrap_config
+    awk -F= '
+      $1=="MASTER_EMAIL"{me=$2} $1=="MASTER_PASSWORD"{mp=$2}
+      $1=="TENANT_ALPHA_EMAIL"{ae=$2} $1=="TENANT_ALPHA_PASSWORD"{ap=$2}
+      $1=="TENANT_BETA_EMAIL"{be=$2} $1=="TENANT_BETA_PASSWORD"{bp=$2}
+      END {printf "Master:  %s / %s\nTenant A: %s / %s\nTenant B: %s / %s\n",me,mp,ae,ap,be,bp}
+    ' "$ENV_FILE"
+    ;;
+  doctor)
+    bootstrap_config
+    echo "Agentworks doctor"
+    echo "  OS: $(uname -s) $(uname -m)"
+    echo "  Docker: $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unavailable)"
+    echo "  Compose: $(docker compose version --short 2>/dev/null || echo unavailable)"
+    echo "  Node: $(node --version 2>/dev/null || echo unavailable)"
+    echo "  Lima: $(limactl --version 2>/dev/null || echo unavailable)"
+    echo "  Incus/LXD: $(incus version 2>/dev/null || lxc version 2>/dev/null || echo unavailable)"
+    echo "  State: $STATE_DIR"
+    compose ps
+    if command -v limactl >/dev/null 2>&1; then LIMA_HOME="$STATE_DIR/lima" limactl list || true; elif [ "$(uname -s)" = "Linux" ]; then "$ROOT/worker/runtime/incus-limactl" list || true; fi
+    PORT=$(awk -F= '$1=="MASTER_PORT"{print $2}' "$ENV_FILE")
+    curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || echo "Master health: unavailable"
+    echo
+    ;;
+  open)
+    bootstrap_config
+    PORT=$(awk -F= '$1=="MASTER_PORT"{print $2}' "$ENV_FILE")
+    if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:$PORT"; else echo "http://127.0.0.1:$PORT"; fi
+    ;;
+  *)
+    echo "Usage: ./agentworks {install|setup-worker|import-claude-oauth|upgrade|repair|start|stop|restart|status|logs|worker-logs|credentials|doctor|smoke|open}"
+    ;;
+esac

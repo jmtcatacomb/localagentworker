@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentworks
+      POSTGRES_USER: agentworks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./.agentworks/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentworks -d agentworks"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  master:
+    build:
+      context: ./master
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD}@postgres:5432/agentworks
+      JWT_SECRET: ${JWT_SECRET}
+      WORKER_TOKEN: ${WORKER_TOKEN}
+      MASTER_AGENT_TOKEN: ${MASTER_AGENT_TOKEN}
+      PORT_POOL_START: ${PORT_POOL_START:-20000}
+      PORT_POOL_END: ${PORT_POOL_END:-29999}
+      MASTER_EMAIL: ${MASTER_EMAIL}
+      MASTER_PASSWORD: ${MASTER_PASSWORD}
+      TENANT_ALPHA_EMAIL: ${TENANT_ALPHA_EMAIL}
+      TENANT_ALPHA_PASSWORD: ${TENANT_ALPHA_PASSWORD}
+      TENANT_BETA_EMAIL: ${TENANT_BETA_EMAIL}
+      TENANT_BETA_PASSWORD: ${TENANT_BETA_PASSWORD}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MASTER_AGENT_HOME: /master-agent-home
+      MASTER_AGENT_WORKSPACE: /workspace/agentworks
+    volumes:
+      - ./.agentworks/master-agent-home:/master-agent-home
+      - ./:/workspace/agentworks
+    ports:
+      - "127.0.0.1:${MASTER_PORT:-8080}:8080"

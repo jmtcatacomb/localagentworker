@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentworks Control Plane</title>
+    <link rel="stylesheet" href="/vendor/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="app"></main>
+    <dialog id="terminal-dialog">
+      <header>
+        <div>
+          <span class="eyebrow" id="terminal-eyebrow">TENANT CONSOLE</span>
+          <h2 id="terminal-title">Terminal</h2>
+        </div>
+        <button id="terminal-close" class="icon-button" aria-label="닫기">×</button>
+      </header>
+      <div id="terminal"></div>
+      <footer id="terminal-context">이 터미널은 해당 테넌트 VM 안에서 실행됩니다. <code>codex</code> 또는 <code>claude</code>를 실행해 직접 로그인하세요.</footer>
+    </dialog>
+    <div id="toast" role="status"></div>
+    <script src="/vendor/xterm/lib/xterm.js"></script>
+    <script src="/vendor/xterm-fit/lib/addon-fit.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
