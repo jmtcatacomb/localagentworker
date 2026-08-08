@@ -112,6 +112,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
   const ubuntuLaunch = fs.readFileSync('scripts/e2e/aws-ubuntu-launch.mjs', 'utf8');
   const ubuntuBootstrap = fs.readFileSync('scripts/e2e/bootstrap-host-ubuntu.sh', 'utf8');
+  const lxdForwarding = fs.readFileSync('worker/runtime/lxd-docker-forwarding.sh', 'utf8');
   assert.match(installer, /setup_worker_linux/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
@@ -135,6 +136,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(systemd, /\/snap\/bin/);
   assert.match(systemd, /systemctl', 'restart'/);
   assert.match(systemd, /runtime === 'lxd' \? 'false' : 'true'/);
+  assert.match(systemd, /lxd-docker-forwarding/);
+  assert.match(lxdForwarding, /DOCKER-USER/);
+  assert.match(lxdForwarding, /RELATED,ESTABLISHED/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

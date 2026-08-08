@@ -12,6 +12,7 @@ if (!runtime) throw new Error('Incus/LXD runtime is unavailable; install and ini
 const node = process.execPath;
 const port = env.MASTER_PORT || '8080';
 const adapter = path.join(root, 'worker/runtime/incus-limactl');
+const lxdForwardingSource = path.join(root, 'worker/runtime/lxd-docker-forwarding.sh');
 const user = process.env.SUDO_USER || process.env.USER || os.userInfo().username;
 const home = os.homedir();
 const unitName = 'agentworks-localagentworker.service';
@@ -37,8 +38,14 @@ const environment = {
 const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
 const runtimeGroup = runtime === 'incus' ? 'incus-admin' : 'lxd';
+let runtimePreStart = '';
+if (runtime === 'lxd') {
+  const forwardingTarget = '/usr/local/lib/agentworks/lxd-docker-forwarding';
+  execFileSync('sudo', ['install', '-D', '-m', '0755', lxdForwardingSource, forwardingTarget], { stdio: 'inherit' });
+  runtimePreStart = `ExecStartPre=+${forwardingTarget} lxdbr0\n`;
+}
 const noNewPrivileges = runtime === 'lxd' ? 'false' : 'true';
-const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'}\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\nExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
+const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'}\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\n${runtimePreStart}ExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
 fs.mkdirSync(path.dirname(unitPath), { recursive: true });
 fs.writeFileSync(unitPath, unit, { mode: 0o600 });
 execFileSync('sudo', ['install', '-m', '0644', unitPath, `/etc/systemd/system/${unitName}`], { stdio: 'inherit' });

@@ -68,6 +68,11 @@ The portable default guest reference is `ubuntu:24.04`; LXD/Incus select the
 virtual-machine variant through the Worker’s `--vm` launch flag. Hosts may override
 it with `AGENTWORKS_GUEST_IMAGE` only after their runtime probe verifies that image.
 
+When Docker and Snap LXD share a host, Docker’s `FORWARD=DROP` policy otherwise
+blocks LXD NAT. The generated LXD Worker unit installs an idempotent root-owned
+`DOCKER-USER` bridge rule before Worker start; it permits outbound traffic from
+`lxdbr0` and only established return traffic back to it.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:
