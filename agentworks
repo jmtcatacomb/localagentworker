@@ -61,7 +61,7 @@ setup_worker_linux() {
     fi
   fi
   if [ "$RUNTIME" = "lxd" ] && ! command -v lxc >/dev/null 2>&1; then echo "Host Worker pending: lxc/LXD is unavailable." >&2; return 1; fi
-  if [ "$RUNTIME" = "lxd" ] && ! sudo lxc info >/dev/null 2>&1; then
+  if [ "$RUNTIME" = "lxd" ] && ! sudo lxc storage list --format csv 2>/dev/null | grep -q .; then
     sudo lxd init --minimal
   fi
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then echo "Host Worker pending: Node.js 22+ is required." >&2; return 1; fi

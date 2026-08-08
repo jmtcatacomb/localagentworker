@@ -57,6 +57,10 @@ Worker systemd unit uses `NoNewPrivileges=false` only for the `lxd` runtime. The
 native Incus path retains `NoNewPrivileges=true`; the Host Agent records this runtime
 choice in its evidence.
 
+The LXD adapter also initializes the minimal storage pool only when no storage pool
+exists. A responding LXD daemon alone is not enough: its default profile must have a
+root disk device before Agentworks can launch tenant VMs.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:
