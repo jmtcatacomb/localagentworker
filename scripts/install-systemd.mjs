@@ -18,7 +18,7 @@ const unitName = 'agentworks-localagentworker.service';
 const unitPath = path.join(stateDir, 'generated', unitName);
 const environment = {
   HOME: home,
-  PATH: `${path.dirname(node)}:/usr/local/bin:/usr/bin:/bin`,
+  PATH: `${path.dirname(node)}:/snap/bin:/usr/local/bin:/usr/bin:/bin`,
   WORKER_ID: process.env.WORKER_ID || 'linux-local',
   WORKER_TOKEN: env.WORKER_TOKEN,
   MASTER_AGENT_TOKEN: env.MASTER_AGENT_TOKEN,
