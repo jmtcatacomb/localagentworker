@@ -115,6 +115,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(installer, /setup_worker_linux/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
+  assert.match(adapter, /ubuntu:24\.04/);
   assert.match(adapter, /\['exec', name, '--'/);
   assert.match(preflight, /\/dev\/kvm/);
   assert.match(awsPlan, /read-only-aws-plan/);

@@ -42,7 +42,10 @@ if (command === 'list') {
   const memory = option('--memory') || '4';
   const disk = option('--disk') || '40';
   if (!name) fail('create requires --name');
-  const image = process.env.AGENTWORKS_GUEST_IMAGE || 'images:ubuntu/24.04/cloud';
+  // `ubuntu:24.04` is present on the Ubuntu remote supplied by both LXD and
+  // Incus. With `--vm`, each runtime resolves its VM image variant. The old
+  // `images:ubuntu/24.04/cloud` alias is not available on Ubuntu's LXD remote.
+  const image = process.env.AGENTWORKS_GUEST_IMAGE || 'ubuntu:24.04';
   invoke(['launch', image, name, '--vm', '-c', `limits.cpu=${cpus}`, '-c', `limits.memory=${memory}GiB`, '-d', `root,size=${disk}GiB`]);
 } else if (command === 'start' || command === 'stop') {
   const name = argv.filter(value => value !== command && value !== '-y').at(-1);

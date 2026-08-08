@@ -61,6 +61,10 @@ The LXD adapter also initializes the minimal storage pool only when no storage p
 exists. A responding LXD daemon alone is not enough: its default profile must have a
 root disk device before Agentworks can launch tenant VMs.
 
+The portable default guest reference is `ubuntu:24.04`; LXD/Incus select the
+virtual-machine variant through the Worker’s `--vm` launch flag. Hosts may override
+it with `AGENTWORKS_GUEST_IMAGE` only after their runtime probe verifies that image.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:
