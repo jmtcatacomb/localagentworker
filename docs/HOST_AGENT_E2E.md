@@ -41,6 +41,16 @@ ignored `.agentworks/e2e/`. It never uses EC2 user-data for Git, CLI credentials
 or Claude OAuth; the key and the subsequent runtime secret delivery stay in
 protected local state. It only tags resources for later **stop**, never termination.
 
+The repository assumes Docker for normal user installs. For the clean Ubuntu cloud
+test only, the Host Agent may use the narrowly scoped, explicit prerequisite step:
+
+```sh
+AGENTWORKS_HOST_BOOTSTRAP=ubuntu ./scripts/e2e/bootstrap-host-ubuntu.sh
+```
+
+It installs Docker/Compose and Node.js 24 only when missing, verifies `/dev/kvm`,
+and requires an SSH reconnect after adding the host user to the `docker` group.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:
@@ -106,7 +116,8 @@ unrestricted Docker socket or cloud credentials.
    Abort if a required approval is missing.
 3. **Provision** — create one tagged test instance per approved OS. Wait for a
    host-agent channel (SSM or the approved SSH/RDP alternative) before installing.
-4. **Install** — clone, start the Master, install the platform-specific Worker
+4. **Install** — clone the immutable release, run the platform-specific host
+   prerequisite script only when its preflight requires it, start the Master, install the Worker
    adapter, and inject only the Claude credential through the approved runtime
    secret path. Verify with `agentworks doctor` and a platform-specific smoke test.
 5. **Functional matrix** — create the two seeded tenants plus one new tenant;
