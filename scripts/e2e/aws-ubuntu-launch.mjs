@@ -60,6 +60,9 @@ try {
   const launched = aws(['ec2', 'run-instances', '--image-id', imageId, '--instance-type', instanceType, '--key-name', runId, '--security-group-ids', groupId, '--subnet-id', subnet.SubnetId, '--count', '1', '--cpu-options', 'NestedVirtualization=enabled', '--metadata-options', 'HttpTokens=required,HttpEndpoint=enabled', '--block-device-mappings', 'DeviceName=/dev/sda1,Ebs={VolumeSize=40,VolumeType=gp3,DeleteOnTermination=false}', '--tag-specifications', tagSpecifications('instance'), tagSpecifications('volume')]);
   const instance = launched.Instances?.[0];
   if (!instance?.InstanceId) throw new Error('AWS did not return an instance id.');
+  // Tenant VMs live behind the Host Agent's LXD NAT bridge. EC2 must allow this
+  // host to forward packets whose source/destination is not the host itself.
+  aws(['ec2', 'modify-instance-attribute', '--instance-id', instance.InstanceId, '--no-source-dest-check']);
   const record = { runId, region, instanceId: instance.InstanceId, instanceType, imageId, vpcId: vpc.VpcId, subnetId: subnet.SubnetId, availabilityZone: subnet.AvailabilityZone, securityGroupId: groupId, keyName: runId, keyPath, sourceCidr, cleanup: 'stop-not-terminate' };
   fs.writeFileSync(path.join(runDir, 'launch.json'), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   console.log(JSON.stringify({ ...record, keyPath: '[protected state file]' }, null, 2));

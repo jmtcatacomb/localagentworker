@@ -124,6 +124,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(releaseGate, /immutable commit/);
   assert.match(ubuntuLaunch, /AGENTWORKS_E2E_APPROVE/);
   assert.match(ubuntuLaunch, /NestedVirtualization=enabled/);
+  assert.match(ubuntuLaunch, /no-source-dest-check/);
   assert.match(ubuntuLaunch, /stop-not-terminate/);
   assert.match(ubuntuBootstrap, /AGENTWORKS_HOST_BOOTSTRAP/);
   assert.match(ubuntuBootstrap, /\/dev\/kvm/);

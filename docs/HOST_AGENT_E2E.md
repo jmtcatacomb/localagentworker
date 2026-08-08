@@ -40,6 +40,9 @@ a source-CIDR-only SSH/temporary HTTP security group, and a generated SSH key un
 ignored `.agentworks/e2e/`. It never uses EC2 user-data for Git, CLI credentials,
 or Claude OAuth; the key and the subsequent runtime secret delivery stay in
 protected local state. It only tags resources for later **stop**, never termination.
+Because tenant VMs use the host’s LXD NAT bridge, the launcher also disables EC2
+source/destination checking on that tagged test instance; without it, tenant outbound
+traffic and the host-to-VM port relay cannot work.
 
 The repository assumes Docker for normal user installs. For the clean Ubuntu cloud
 test only, the Host Agent may use the narrowly scoped, explicit prerequisite step:
