@@ -1141,11 +1141,13 @@ fi
 grep -q 'HOME/.local/bin' "$HOME/.profile" || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
 codex --version
 claude --version
-touch "$HOME/.agentworks/agents-ready"
 `;
   await run(limactl, ['shell', '-y', name, 'bash', '-lc', script], { timeoutMs: 30 * 60 * 1000 });
   await syncClaudeOauthToCell(cell);
   await installBridge(cell);
+  // This is the durable all-or-nothing readiness marker. Keep it last so a
+  // restarted Worker retries failed credential or MCP bridge setup.
+  await run(limactl, ['shell', '-y', name, 'bash', '-lc', 'touch "$HOME/.agentworks/agents-ready"'], { quiet: true });
   agentsState.set(name, 'ready');
   progress(name, 'running', 'ready');
   return { runtimeName: name, status: 'running', agentsStatus: 'ready' };
