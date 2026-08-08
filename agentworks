@@ -5,6 +5,13 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 STATE_DIR=${AGENTWORKS_STATE_DIR:-"$ROOT/.agentworks"}
 ENV_FILE="$STATE_DIR/config/master.env"
 LABEL="dev.agentworks.localagentworker"
+# Linux VM images execute tenant work as the non-root Ubuntu cloud user. Keep
+# the CLI smoke path on that same identity instead of accidentally validating
+# stale root-owned CLI state.
+AGENTWORKS_GUEST_USER=${AGENTWORKS_GUEST_USER:-ubuntu}
+AGENTWORKS_GUEST_UID=${AGENTWORKS_GUEST_UID:-1000}
+AGENTWORKS_GUEST_GID=${AGENTWORKS_GUEST_GID:-1000}
+AGENTWORKS_GUEST_HOME=${AGENTWORKS_GUEST_HOME:-/home/ubuntu}
 
 compose() {
   docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" "$@"
@@ -138,7 +145,7 @@ case "${1:-help}" in
     compose exec -T master sh -lc 'codex --version && claude --version'
     for CELL in aw-a1 aw-b1; do
       if [ "$(uname -s)" = "Darwin" ]; then LIMA_HOME="$STATE_DIR/lima" limactl shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'
-      else "$ROOT/worker/runtime/incus-limactl" shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'; fi
+      else AGENTWORKS_GUEST_USER="$AGENTWORKS_GUEST_USER" AGENTWORKS_GUEST_UID="$AGENTWORKS_GUEST_UID" AGENTWORKS_GUEST_GID="$AGENTWORKS_GUEST_GID" AGENTWORKS_GUEST_HOME="$AGENTWORKS_GUEST_HOME" "$ROOT/worker/runtime/incus-limactl" shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'; fi
     done
     echo "Agentworks smoke: ok"
     ;;

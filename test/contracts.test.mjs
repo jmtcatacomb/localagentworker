@@ -133,6 +133,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(ubuntuBootstrap, /build-essential/);
   assert.match(installer, /lxc storage list --format csv/);
   assert.match(installer, /lxd init --minimal/);
+  assert.match(installer, /AGENTWORKS_GUEST_HOME/);
   assert.match(systemd, /\/snap\/bin/);
   assert.match(systemd, /systemctl', 'restart'/);
   assert.match(systemd, /runtime === 'lxd' \? 'false' : 'true'/);
