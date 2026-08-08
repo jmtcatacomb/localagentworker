@@ -131,6 +131,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(installer, /lxd init --minimal/);
   assert.match(systemd, /\/snap\/bin/);
   assert.match(systemd, /systemctl', 'restart'/);
+  assert.match(systemd, /runtime === 'lxd' \? 'false' : 'true'/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

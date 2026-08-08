@@ -52,6 +52,11 @@ It installs Docker/Compose, Node.js 24, and the Worker-native-module build tools
 only when missing, verifies `/dev/kvm`, and requires an SSH reconnect after adding
 the host user to the `docker` group.
 
+Ubuntu's Snap-packaged LXD client requires capability acquisition, so its generated
+Worker systemd unit uses `NoNewPrivileges=false` only for the `lxd` runtime. The
+native Incus path retains `NoNewPrivileges=true`; the Host Agent records this runtime
+choice in its evidence.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:
