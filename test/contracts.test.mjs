@@ -179,6 +179,7 @@ test('agent activity, usage telemetry, and safe markdown are persisted', () => {
   assert.match(server, /sanitizeHtml/);
   assert.match(server, /account\/rateLimits\/read|usageOverview/);
   assert.match(worker, /thread\/tokenUsage\/updated/);
+  assert.match(worker, /Codex app-server .*timed out/);
   assert.match(worker, /rate_limit_event/);
   assert.match(worker, /type: 'file_change'/);
   assert.match(worker, /type: 'subagent'/);

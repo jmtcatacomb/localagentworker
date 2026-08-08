@@ -33,6 +33,7 @@ const activeRuns = new Map();
 const outboxInFlight = new Set();
 const bridgeInstallLocks = new Map();
 const portServers = new Map();
+const codexAppServerTimeoutMs = Number(process.env.CODEX_APP_SERVER_TIMEOUT_MS || 15_000);
 let masterBridgeInstall;
 let socket;
 let reconnectTimer;
@@ -624,7 +625,14 @@ exec codex app-server
     request(method, params = {}) {
       const id = ++seq;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`Codex app-server ${method} timed out after ${codexAppServerTimeoutMs}ms`));
+        }, codexAppServerTimeoutMs);
+        pending.set(id, {
+          resolve: value => { clearTimeout(timer); resolve(value); },
+          reject: error => { clearTimeout(timer); reject(error); },
+        });
         child.stdin.write(`${JSON.stringify({ method, id, params })}\n`);
       });
     },
@@ -648,12 +656,17 @@ exec codex app-server
       else item.resolve(message.result || {});
     } else client.onNotification?.(message);
   });
-  await client.request('initialize', {
-    clientInfo: { name: 'agentworks', title: 'Agentworks', version: '0.1.0' },
-    capabilities: { experimentalApi: true, requestAttestation: false },
-  });
-  client.notify('initialized', {});
-  return client;
+  try {
+    await client.request('initialize', {
+      clientInfo: { name: 'agentworks', title: 'Agentworks', version: '0.1.0' },
+      capabilities: { experimentalApi: true, requestAttestation: false },
+    });
+    client.notify('initialized', {});
+    return client;
+  } catch (error) {
+    client.close();
+    throw error;
+  }
 }
 
 async function claudeTurn(cell, payload, emit = () => {}) {
