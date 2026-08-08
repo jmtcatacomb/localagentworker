@@ -43,6 +43,7 @@ fs.writeFileSync(unitPath, unit, { mode: 0o600 });
 execFileSync('sudo', ['install', '-m', '0644', unitPath, `/etc/systemd/system/${unitName}`], { stdio: 'inherit' });
 execFileSync('sudo', ['systemctl', 'daemon-reload'], { stdio: 'inherit' });
 execFileSync('sudo', ['systemctl', 'enable', '--now', unitName], { stdio: 'inherit' });
+execFileSync('sudo', ['systemctl', 'restart', unitName], { stdio: 'inherit' });
 console.log(`localagentworker installed: /etc/systemd/system/${unitName}`);
 
 function commandExists(command) {

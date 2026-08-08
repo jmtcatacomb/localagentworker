@@ -162,7 +162,11 @@ case "${1:-help}" in
     echo "  Incus/LXD: $(incus version 2>/dev/null || lxc version 2>/dev/null || echo unavailable)"
     echo "  State: $STATE_DIR"
     compose ps
-    if command -v limactl >/dev/null 2>&1; then LIMA_HOME="$STATE_DIR/lima" limactl list || true; elif [ "$(uname -s)" = "Linux" ]; then "$ROOT/worker/runtime/incus-limactl" list || true; fi
+    if command -v limactl >/dev/null 2>&1; then LIMA_HOME="$STATE_DIR/lima" limactl list || true; elif [ "$(uname -s)" = "Linux" ]; then
+      if command -v incus >/dev/null 2>&1; then AGENTWORKS_LINUX_RUNTIME=incus AGENTWORKS_INCUS_BIN=incus "$ROOT/worker/runtime/incus-limactl" list || true
+      elif command -v lxc >/dev/null 2>&1; then AGENTWORKS_LINUX_RUNTIME=lxd AGENTWORKS_INCUS_BIN=lxc "$ROOT/worker/runtime/incus-limactl" list || true
+      else "$ROOT/worker/runtime/incus-limactl" list || true; fi
+    fi
     PORT=$(awk -F= '$1=="MASTER_PORT"{print $2}' "$ENV_FILE")
     curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || echo "Master health: unavailable"
     echo
