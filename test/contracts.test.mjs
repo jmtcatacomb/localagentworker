@@ -117,7 +117,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
   assert.match(adapter, /ubuntu:24\.04/);
-  assert.match(adapter, /\['exec', name, '--'/);
+  assert.match(adapter, /\['exec', name, \.\.\.identity, '--'/);
   assert.match(preflight, /\/dev\/kvm/);
   assert.match(awsPlan, /read-only-aws-plan/);
   assert.match(awsPlan, /nestedVirtualization/);
@@ -139,6 +139,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(systemd, /lxd-docker-forwarding/);
   assert.match(lxdForwarding, /DOCKER-USER/);
   assert.match(lxdForwarding, /RELATED,ESTABLISHED/);
+  assert.match(systemd, /AGENTWORKS_GUEST_UID/);
+  assert.match(adapter, /AGENTWORKS_GUEST_HOME/);
+  assert.match(adapter, /--user/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

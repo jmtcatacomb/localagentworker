@@ -61,7 +61,19 @@ if (command === 'list') {
   const rest = argv.slice(1).filter(value => value !== '-y');
   const name = rest.shift();
   if (!name || !rest.length) fail('shell requires an instance name and command');
-  invoke(['exec', name, '--', ...rest]);
+  // LXD/Incus execute as root unless a uid is supplied.  Agent state must live
+  // in the tenant's regular Linux account, otherwise a terminal opened by the
+  // tenant and background session runs see different homes and credentials.
+  // Ubuntu cloud images provide `ubuntu` as uid/gid 1000; these values remain
+  // configurable for a future image family.
+  const guestUid = process.env.AGENTWORKS_GUEST_UID || '';
+  const guestGid = process.env.AGENTWORKS_GUEST_GID || guestUid;
+  const guestHome = process.env.AGENTWORKS_GUEST_HOME || '';
+  const guestUser = process.env.AGENTWORKS_GUEST_USER || '';
+  const identity = guestUid
+    ? ['--user', guestUid, '--group', guestGid, ...(guestHome ? ['--cwd', guestHome, '--env', `HOME=${guestHome}`] : []), ...(guestUser ? ['--env', `USER=${guestUser}`, '--env', `LOGNAME=${guestUser}`] : [])]
+    : [];
+  invoke(['exec', name, ...identity, '--', ...rest]);
 } else if (command === 'copy') {
   const rest = argv.slice(1);
   if (rest.length !== 2) fail('copy requires source and destination');

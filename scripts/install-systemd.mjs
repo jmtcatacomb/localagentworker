@@ -34,6 +34,13 @@ const environment = {
   LIMA_HOME: path.join(stateDir, 'runtime'),
   AUTO_PROVISION: 'true',
   AUTO_CELLS: 'aw-a1,aw-b1',
+  // Ubuntu cloud VM images reserve uid/gid 1000 for their non-root `ubuntu`
+  // account.  The compatibility adapter applies this identity to every guest
+  // command, keeping CLI logins, workspaces and bridge files tenant-owned.
+  AGENTWORKS_GUEST_USER: process.env.AGENTWORKS_GUEST_USER || 'ubuntu',
+  AGENTWORKS_GUEST_UID: process.env.AGENTWORKS_GUEST_UID || '1000',
+  AGENTWORKS_GUEST_GID: process.env.AGENTWORKS_GUEST_GID || '1000',
+  AGENTWORKS_GUEST_HOME: process.env.AGENTWORKS_GUEST_HOME || '/home/ubuntu',
 };
 const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
