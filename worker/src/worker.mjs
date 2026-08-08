@@ -102,6 +102,7 @@ async function provisionDemoCells() {
     try {
       await ensureCell({ runtime_name: runtimeName, desired_vcpus: 2, desired_memory_mib: 4096 });
     } catch (error) {
+      console.error(`automatic provisioning failed for ${runtimeName}: ${error.message}`);
       progress(runtimeName, 'error', null, error.message);
     }
   }
