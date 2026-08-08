@@ -151,6 +151,7 @@ test('Claude-only bootstrap uses protected host state rather than Git or service
   assert.match(worker, /syncClaudeOauthToCell/);
   assert.match(worker, /syncClaudeOauthToMasterHome/);
   assert.match(worker, /install -m 600/);
+  assert.match(worker, /crypto\.randomUUID\(\)/);
   assert.match(worker, /durable all-or-nothing readiness marker/);
   assert.match(importer, /mode: 0o600/);
   assert.match(installer, /import-claude-oauth/);

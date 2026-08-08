@@ -1158,9 +1158,12 @@ async function syncClaudeOauthToCell(cell) {
   try { await fs.access(claudeOauthTokenFile); }
   catch { return { configured: false, reason: 'host-secret-missing' }; }
   const name = cell.runtime_name;
-  const stagingPath = '/tmp/agentworks-claude-oauth-token';
+  // LXD allows a non-root client to create a guest file but can forbid
+  // overwriting the same path on a later provisioning pass. A one-shot staging
+  // file makes retries safe and is removed in the guest immediately after use.
+  const stagingPath = `/tmp/agentworks-claude-oauth-token-${crypto.randomUUID()}`;
   await run(limactl, ['copy', claudeOauthTokenFile, `${name}:${stagingPath}`], { timeoutMs: 30_000, quiet: true });
-  await run(limactl, ['shell', '-y', name, 'bash', '-lc', 'set -eu; mkdir -p "$HOME/.agentworks/secrets"; chmod 700 "$HOME/.agentworks/secrets"; install -m 600 /tmp/agentworks-claude-oauth-token "$HOME/.agentworks/secrets/claude-oauth-token"; rm -f /tmp/agentworks-claude-oauth-token'], { timeoutMs: 30_000, quiet: true });
+  await run(limactl, ['shell', '-y', name, 'bash', '-lc', 'set -eu; mkdir -p "$HOME/.agentworks/secrets"; chmod 700 "$HOME/.agentworks/secrets"; install -m 600 "$1" "$HOME/.agentworks/secrets/claude-oauth-token"; rm -f "$1"', 'agentworks-secret', stagingPath], { timeoutMs: 30_000, quiet: true });
   return { configured: true };
 }
 
@@ -1188,16 +1191,18 @@ async function installBridgeUnlocked(cell) {
   await fs.access(bridgeSource);
   const name = cell.runtime_name;
   await run(limactl, ['shell', '-y', name, 'bash', '-lc', 'mkdir -p "$HOME/.local/bin" "$HOME/.agentworks/bridge/outbox" "$HOME/.agentworks/bridge/receipts" "$HOME/.agentworks/bridge/deliveries" && chmod 700 "$HOME/.agentworks/bridge" "$HOME/.agentworks/bridge/outbox" "$HOME/.agentworks/bridge/receipts" "$HOME/.agentworks/bridge/deliveries"'], { quiet: true });
-  await run(limactl, ['copy', bridgeSource, `${name}:/tmp/agentworks_bridge.py`], { quiet: true });
+  const stagingPath = `/tmp/agentworks_bridge_${crypto.randomUUID()}.py`;
+  await run(limactl, ['copy', bridgeSource, `${name}:${stagingPath}`], { quiet: true });
   const script = String.raw`
 set -e
-install -m 0755 /tmp/agentworks_bridge.py "$HOME/.local/bin/agentworks-bridge"
+install -m 0755 "$1" "$HOME/.local/bin/agentworks-bridge"
+rm -f "$1"
 export PATH="$HOME/.local/bin:$PATH"
 codex mcp get agentworks-bridge >/dev/null 2>&1 || codex mcp add agentworks-bridge -- agentworks-bridge mcp
 claude mcp get agentworks-bridge >/dev/null 2>&1 || claude mcp add --scope user agentworks-bridge -- agentworks-bridge mcp
 agentworks-bridge list-known >/dev/null
 `;
-  await run(limactl, ['shell', '-y', name, 'bash', '-lc', script], { timeoutMs: 60_000, quiet: true });
+  await run(limactl, ['shell', '-y', name, 'bash', '-lc', script, 'agentworks-bridge-install', stagingPath], { timeoutMs: 60_000, quiet: true });
   return { installed: true, command: 'agentworks-bridge', mcp: 'agentworks-bridge' };
 }
 
