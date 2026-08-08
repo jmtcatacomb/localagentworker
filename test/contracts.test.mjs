@@ -110,6 +110,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const preflight = fs.readFileSync('scripts/e2e/host-agent-preflight.mjs', 'utf8');
   const awsPlan = fs.readFileSync('scripts/e2e/aws-plan.mjs', 'utf8');
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
+  const ubuntuLaunch = fs.readFileSync('scripts/e2e/aws-ubuntu-launch.mjs', 'utf8');
   assert.match(installer, /setup_worker_linux/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
@@ -119,6 +120,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(awsPlan, /nestedVirtualization/);
   assert.match(releaseGate, /read-only-release-gate/);
   assert.match(releaseGate, /immutable commit/);
+  assert.match(ubuntuLaunch, /AGENTWORKS_E2E_APPROVE/);
+  assert.match(ubuntuLaunch, /NestedVirtualization=enabled/);
+  assert.match(ubuntuLaunch, /stop-not-terminate/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

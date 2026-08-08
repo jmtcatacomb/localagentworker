@@ -26,6 +26,21 @@ create an EC2 instance, security group, IAM role, key pair, or AgentSlack object
 is represented by an immutable, clean Git commit and a reachable `origin`; a host
 must clone that exact commit rather than receiving a mutable developer directory.
 
+After the release gate passes and an operator has explicitly approved the current
+CIDR and cost envelope, the initial Ubuntu launcher is deliberately opt-in:
+
+```sh
+AGENTWORKS_E2E_APPROVE=launch-ubuntu \
+AGENTWORKS_E2E_SOURCE_CIDR=x.x.x.x/32 \
+npm run e2e:aws-ubuntu-launch
+```
+
+It creates one 40 GiB `c7i.2xlarge` Ubuntu 24.04 host with nested virtualization,
+a source-CIDR-only SSH/temporary HTTP security group, and a generated SSH key under
+ignored `.agentworks/e2e/`. It never uses EC2 user-data for Git, CLI credentials,
+or Claude OAuth; the key and the subsequent runtime secret delivery stay in
+protected local state. It only tags resources for later **stop**, never termination.
+
 ## Current result
 
 The current Agentworks codebase supports the reference environment only:

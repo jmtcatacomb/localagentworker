@@ -6,6 +6,7 @@
   "scripts": {
     "e2e:host-preflight": "node scripts/e2e/host-agent-preflight.mjs",
     "e2e:aws-plan": "node scripts/e2e/aws-plan.mjs",
+    "e2e:aws-ubuntu-launch": "node scripts/e2e/aws-ubuntu-launch.mjs",
     "e2e:release-gate": "node scripts/e2e/release-gate.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "node --check master/src/server.mjs && node --check worker/src/worker.mjs && node --check master/public/app.js"
