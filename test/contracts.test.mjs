@@ -127,6 +127,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(ubuntuBootstrap, /AGENTWORKS_HOST_BOOTSTRAP/);
   assert.match(ubuntuBootstrap, /\/dev\/kvm/);
   assert.match(ubuntuBootstrap, /docker-compose-v2/);
+  assert.match(ubuntuBootstrap, /build-essential/);
+  assert.match(installer, /lxd init --minimal/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

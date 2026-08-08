@@ -23,7 +23,7 @@ need_docker=false
 command -v docker >/dev/null 2>&1 || need_docker=true
 if [ "$need_docker" = true ]; then
   sudo apt-get update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git docker.io docker-compose-v2
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git python3 build-essential docker.io docker-compose-v2
   sudo systemctl enable --now docker
   sudo usermod -aG docker "${SUDO_USER:-$USER}"
 fi

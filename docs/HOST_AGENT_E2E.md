@@ -48,8 +48,9 @@ test only, the Host Agent may use the narrowly scoped, explicit prerequisite ste
 AGENTWORKS_HOST_BOOTSTRAP=ubuntu ./scripts/e2e/bootstrap-host-ubuntu.sh
 ```
 
-It installs Docker/Compose and Node.js 24 only when missing, verifies `/dev/kvm`,
-and requires an SSH reconnect after adding the host user to the `docker` group.
+It installs Docker/Compose, Node.js 24, and the Worker-native-module build tools
+only when missing, verifies `/dev/kvm`, and requires an SSH reconnect after adding
+the host user to the `docker` group.
 
 ## Current result
 
