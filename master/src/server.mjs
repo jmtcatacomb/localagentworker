@@ -620,6 +620,20 @@ workerWss.on('connection', ws => {
           [workerId, message.platform, message.runtime, message.capabilities || {}],
         );
         await applyCellStatuses(message.cells || [], workerId);
+        // The system Master cell is seeded before a concrete host Worker has
+        // registered, so legacy installs carry the historical `mac-local`
+        // placeholder.  Bind that orphaned cell to the registering local host
+        // (or recover it when its former Worker is offline).  Tenant cells stay
+        // untouched: they are explicitly scheduled when created.
+        await pool.query(
+          `UPDATE cells master SET worker_id=$1,updated_at=now()
+           WHERE master.kind='master' AND (
+             master.worker_id='mac-local' OR NOT EXISTS (
+               SELECT 1 FROM workers current WHERE current.id=master.worker_id AND current.status='online'
+             )
+           )`,
+          [workerId],
+        );
         ws.send(JSON.stringify({ type: 'registered', workerId }));
         void syncBridgeDirectories(workerId);
         void restorePortRoutes(workerId);

@@ -91,6 +91,8 @@ test('Master Agent is a first-class system session with audited admin capabiliti
   assert.match(server, /vm\.exec\.requested/);
   assert.match(worker, /async function executeVmCommand/);
   assert.match(ui, /data-workspace="cell-master"/);
+  assert.match(server, /master\.worker_id='mac-local'/);
+  assert.match(server, /master\.kind='master'/);
 });
 
 test('superadmin can create a tenant cell without exposing its initial password to audit data', () => {
