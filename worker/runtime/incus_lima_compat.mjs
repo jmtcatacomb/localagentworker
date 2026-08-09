@@ -70,8 +70,9 @@ if (command === 'list') {
   const guestGid = process.env.AGENTWORKS_GUEST_GID || guestUid;
   const guestHome = process.env.AGENTWORKS_GUEST_HOME || '';
   const guestUser = process.env.AGENTWORKS_GUEST_USER || '';
+  const guestPath = guestHome ? `${guestHome}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin` : '';
   const identity = guestUid
-    ? ['--user', guestUid, '--group', guestGid, ...(guestHome ? ['--cwd', guestHome, '--env', `HOME=${guestHome}`] : []), ...(guestUser ? ['--env', `USER=${guestUser}`, '--env', `LOGNAME=${guestUser}`] : [])]
+    ? ['--user', guestUid, '--group', guestGid, ...(guestHome ? ['--cwd', guestHome, '--env', `HOME=${guestHome}`] : []), ...(guestPath ? ['--env', `PATH=${guestPath}`] : []), ...(guestUser ? ['--env', `USER=${guestUser}`, '--env', `LOGNAME=${guestUser}`] : [])]
     : [];
   invoke(['exec', name, ...identity, '--', ...rest]);
 } else if (command === 'copy') {

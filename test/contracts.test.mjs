@@ -142,6 +142,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(lxdForwarding, /RELATED,ESTABLISHED/);
   assert.match(systemd, /AGENTWORKS_GUEST_UID/);
   assert.match(adapter, /AGENTWORKS_GUEST_HOME/);
+  assert.match(adapter, /guestPath/);
   assert.match(adapter, /--user/);
 });
 
