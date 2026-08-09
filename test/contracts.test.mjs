@@ -138,6 +138,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(systemd, /systemctl', 'restart'/);
   assert.match(systemd, /runtime === 'lxd' \? 'false' : 'true'/);
   assert.match(systemd, /lxd-docker-forwarding/);
+  assert.match(systemd, /iptables -C DOCKER-USER/);
   assert.match(lxdForwarding, /DOCKER-USER/);
   assert.match(lxdForwarding, /RELATED,ESTABLISHED/);
   assert.match(systemd, /AGENTWORKS_GUEST_UID/);
