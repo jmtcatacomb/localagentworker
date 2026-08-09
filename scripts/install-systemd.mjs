@@ -52,7 +52,7 @@ if (runtime === 'lxd') {
   // Docker can report active before it has created the DOCKER-USER chain on a
   // cold boot. Retry the scoped LXD forwarding rule until that chain exists;
   // without it Docker's FORWARD=DROP black-holes every tenant VM's IPv4 egress.
-  runtimePreStart = `ExecStartPre=+/bin/sh -c 'for n in $$(seq 1 30); do ${forwardingTarget} lxdbr0; iptables -C DOCKER-USER -i lxdbr0 -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\n`;
+  runtimePreStart = `ExecStartPre=+/bin/sh -c 'for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do ${forwardingTarget} lxdbr0; iptables -C DOCKER-USER -i lxdbr0 -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\n`;
 }
 const noNewPrivileges = runtime === 'lxd' ? 'false' : 'true';
 const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'}\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\n${runtimePreStart}ExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
