@@ -22,6 +22,11 @@ fi
 
 need_docker=false
 command -v docker >/dev/null 2>&1 || need_docker=true
+# Repair an earlier Agentworks AL2 preview that added Docker's incompatible
+# CentOS repo. Leaving it enabled makes every subsequent yum transaction fail.
+if [ -f /etc/yum.repos.d/docker-ce.repo ] && command -v yum-config-manager >/dev/null 2>&1; then
+  sudo yum-config-manager --disable docker-ce-stable >/dev/null 2>&1 || true
+fi
 sudo yum install -y ca-certificates curl git python3 make gcc-c++
 
 if [ "$need_docker" = true ]; then
