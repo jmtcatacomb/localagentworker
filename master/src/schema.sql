@@ -152,6 +152,25 @@ CREATE INDEX IF NOT EXISTS session_messages_delivery_idx
 CREATE INDEX IF NOT EXISTS session_messages_target_order_idx
   ON session_messages(target_session_uuid,created_at);
 
+-- AgentSlack credentials deliberately remain in the Host Worker's protected
+-- state.  The Master stores only the durable correlation required to ACK an
+-- AgentSlack delivery after the exact Agentworks session has completed.
+CREATE TABLE IF NOT EXISTS agentslack_delivery_links (
+  agentworks_message_id uuid PRIMARY KEY REFERENCES session_messages(id) ON DELETE CASCADE,
+  worker_id text NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  binding_id text NOT NULL,
+  delivery_id bigint NOT NULL,
+  external_message_id text NOT NULL,
+  status text NOT NULL DEFAULT 'queued',
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  accepted_at timestamptz,
+  acknowledged_at timestamptz
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agentslack_delivery_links_external_idx
+  ON agentslack_delivery_links(worker_id,binding_id,delivery_id);
+
 CREATE TABLE IF NOT EXISTS session_channels (
   id uuid PRIMARY KEY,
   name text NOT NULL,

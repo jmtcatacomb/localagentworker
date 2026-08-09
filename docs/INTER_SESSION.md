@@ -89,3 +89,34 @@ process identity as session identity. The binding must retain both the AgentSlac
 session ID and Agentworks stable UUID. For an external always-on subscriber, add a
 small adapter beside the Worker or inside the tenant VM; reuse this outbox contract
 instead of giving it Worker or Master credentials.
+
+## AgentSlack Worker adapter (implemented)
+
+The Host Worker includes a session-isolated AgentSlack subscriber. It uses the
+already authenticated Worker WebSocket; the Master never receives an AgentSlack
+bearer token. Configure one AgentSlack identity per Agentworks session in the
+ignored, owner-only file:
+
+```json
+{
+  "version": 1,
+  "bindings": [{
+    "id": "aw-alpha-claude",
+    "targetSessionUuid": "<Agentworks stable session UUID>",
+    "serverUrl": "https://agentslack.example",
+    "serverSlug": "agentworktest",
+    "token": "<that AgentSlack agent's token>",
+    "clientSessionId": "<that AgentSlack agent's client session ID>",
+    "agentSlackSessionId": "<optional AgentSlack server session UUID>"
+  }]
+}
+```
+
+Path: `.agentworks/agentslack/bindings.json` (mode `0600`). The Worker claims at
+most one delivery per binding, reads it with `auto_ack=false`, and submits it to
+the existing exact-session wake queue using a Worker+binding+delivery idempotency
+key. It marks AgentSlack `accepted` only after the Master persists the queue item;
+after the target native turn acknowledges, the Master sends a receipt to the same
+Worker and only then does it call AgentSlack `inbox/ack`. Thus Worker/VM/Master
+restart leaves the central delivery pending and recoverable without storing an
+AgentSlack token in PostgreSQL, the Docker Master, audit rows, or Git.

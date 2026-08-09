@@ -192,3 +192,19 @@ test('agent activity, usage telemetry, and safe markdown are persisted', () => {
   assert.match(server, /gif\|png\|jpe\?g\|webp\|svg/);
   assert.match(server, /'table', 'thead', 'tbody'/);
 });
+
+test('AgentSlack wake bindings keep tokens in Worker state and ACK only after exact-session completion', () => {
+  const schema = fs.readFileSync('master/src/schema.sql', 'utf8');
+  const server = fs.readFileSync('master/src/server.mjs', 'utf8');
+  const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
+  const adapter = fs.readFileSync('worker/integrations/agentslack.mjs', 'utf8');
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS agentslack_delivery_links/);
+  assert.match(server, /ingestAgentSlackDelivery/);
+  assert.match(server, /notifyAgentSlackAcknowledged/);
+  assert.match(server, /target\.worker_id !== workerId/);
+  assert.match(worker, /AgentSlackDeliveryAdapter/);
+  assert.match(adapter, /'agentslack', 'bindings\.json'/);
+  assert.match(adapter, /auto_ack=false/);
+  assert.match(adapter, /inbox\/ack/);
+  assert.doesNotMatch(server, /AGENTSLACK_(?:TOKEN|BEARER|SECRET)/);
+});

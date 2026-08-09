@@ -653,6 +653,22 @@ workerWss.on('connection', ws => {
         return;
       }
 
+      if (message.type === 'agentslack.delivery' && workerId) {
+        await ingestAgentSlackDelivery(ws, workerId, message);
+        return;
+      }
+
+      if (message.type === 'agentslack.delivery.ack.result' && workerId) {
+        await pool.query(
+          `UPDATE agentslack_delivery_links SET status=CASE WHEN $4 THEN 'acknowledged' ELSE 'ack_failed' END,
+             acknowledged_at=CASE WHEN $4 THEN now() ELSE acknowledged_at END,
+             last_error=CASE WHEN $4 THEN NULL ELSE $5 END
+           WHERE worker_id=$1 AND binding_id=$2 AND delivery_id=$3`,
+          [workerId, String(message.bindingId || ''), Number(message.externalDeliveryId || 0), Boolean(message.ok), String(message.error || '').slice(0, 4000)],
+        );
+        return;
+      }
+
       if (message.type === 'command.result') {
         const pending = pendingCommands.get(message.requestId);
         if (!pending) return;
@@ -1168,6 +1184,45 @@ async function ingestBridgeOutbox(workerId, runtimeName, payload) {
   return message;
 }
 
+/**
+ * The Worker is the only component that possesses an AgentSlack agent token.
+ * Keep the Master payload intentionally narrow: a Worker may only bind an
+ * AgentSlack delivery to a target session on that same Worker, and the durable
+ * queue idempotency key is namespaced by Worker+binding+delivery id.
+ */
+async function ingestAgentSlackDelivery(ws, workerId, payload) {
+  const requestId = String(payload.requestId || '');
+  const bindingId = String(payload.bindingId || '');
+  const targetUuid = String(payload.targetSessionUuid || '');
+  const deliveryId = Number(payload.externalDeliveryId);
+  const externalMessageId = String(payload.externalMessageId || '');
+  const content = String(payload.content || '').trim();
+  if (!/^[0-9a-f-]{36}$/i.test(requestId) || !/^[A-Za-z0-9._-]{2,120}$/.test(bindingId)
+    || !/^[0-9a-f-]{36}$/i.test(targetUuid) || !Number.isSafeInteger(deliveryId) || deliveryId < 1
+    || !externalMessageId || !content || content.length > 100_000) {
+    ws.send(JSON.stringify({ type: 'agentslack.delivery.rejected', requestId, bindingId, error: 'invalid AgentSlack delivery envelope' }));
+    return;
+  }
+  const target = await resolveSessionTarget(targetUuid);
+  if (!target || target.worker_id !== workerId) {
+    ws.send(JSON.stringify({ type: 'agentslack.delivery.rejected', requestId, bindingId, error: 'target session is not owned by this Worker' }));
+    return;
+  }
+  const message = await enqueueSessionMessage({
+    source: null, target, content, expectReply: false,
+    idempotencyKey: `agentslack:${workerId}:${bindingId}:${deliveryId}:${externalMessageId}`,
+  });
+  await pool.query(
+    `INSERT INTO agentslack_delivery_links(agentworks_message_id,worker_id,binding_id,delivery_id,external_message_id,status,accepted_at)
+     VALUES ($1,$2,$3,$4,$5,'accepted',now())
+     ON CONFLICT (worker_id,binding_id,delivery_id) DO UPDATE
+       SET agentworks_message_id=EXCLUDED.agentworks_message_id, accepted_at=COALESCE(agentslack_delivery_links.accepted_at,now()), last_error=NULL`,
+    [message.id, workerId, bindingId, deliveryId, externalMessageId],
+  );
+  await audit(null, 'agentslack.delivery.accepted', 'session_message', message.id, { workerId, bindingId, deliveryId });
+  ws.send(JSON.stringify({ type: 'agentslack.delivery.accepted', requestId, bindingId, agentworksMessageId: message.id, deduplicated: !message.created }));
+}
+
 async function authorizedChannelForPair(source, target, requestedChannelId = null) {
   if (source.tenant_id === target.tenant_id) return null;
   const params = [source.session_uuid, target.session_uuid];
@@ -1346,6 +1401,7 @@ async function acknowledgeSessionMessage(message, target, source, result) {
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
   await recordSessionMessageEvent(message.id, 'acknowledged', { target: target.session_uuid, deduplicated: Boolean(result.deduplicated) });
+  await notifyAgentSlackAcknowledged(message.id);
   if (result.providerAccount) await saveUsageSnapshot(target, target.harness, result.providerAccount).catch(() => {});
   if (source) void sendBridgeReceipt(source, {
     messageId: message.id, status: 'acknowledged', source: sessionAddress(source), target: sessionAddress(target),
@@ -1358,6 +1414,20 @@ async function acknowledgeSessionMessage(message, target, source, result) {
       idempotencyKey: `reply:${message.id}`, replyTo: message.id,
     });
   }
+}
+
+async function notifyAgentSlackAcknowledged(agentworksMessageId) {
+  const link = (await pool.query(
+    `SELECT * FROM agentslack_delivery_links WHERE agentworks_message_id=$1 AND status='accepted'`, [agentworksMessageId],
+  )).rows[0];
+  if (!link) return;
+  const worker = workers.get(link.worker_id);
+  if (!worker || worker.readyState !== 1) return;
+  worker.send(JSON.stringify({
+    type: 'agentslack.delivery.ack', bindingId: link.binding_id,
+    externalDeliveryId: Number(link.delivery_id), agentworksMessageId,
+  }));
+  await pool.query(`UPDATE agentslack_delivery_links SET status='ack_pending' WHERE agentworks_message_id=$1`, [agentworksMessageId]);
 }
 
 async function failSessionMessage(message, error, terminal) {

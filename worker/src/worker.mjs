@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import WebSocket from 'ws';
+import { AgentSlackDeliveryAdapter } from '../integrations/agentslack.mjs';
 
 const workerId = process.env.WORKER_ID || 'mac-local';
 const masterUrl = required('MASTER_WS_URL');
@@ -40,6 +41,7 @@ let reconnectTimer;
 let heartbeatTimer;
 let autoProvisionStarted = false;
 let bridgeScanTimer;
+let agentSlackAdapter;
 
 connect();
 
@@ -63,6 +65,14 @@ function connect() {
     clearInterval(bridgeScanTimer);
     bridgeScanTimer = setInterval(() => scanBridgeOutboxes().catch(error => console.error('bridge outbox scan:', error.message)), 5000);
     void scanBridgeOutboxes();
+    if (!agentSlackAdapter) {
+      agentSlackAdapter = new AgentSlackDeliveryAdapter({
+        stateDir,
+        workerId,
+        submit: payload => send({ type: 'agentslack.delivery', ...payload }),
+      });
+      agentSlackAdapter.start().catch(error => console.error(`AgentSlack adapter: ${error.message}`));
+    }
   });
 
   socket.on('message', raw => handleMessage(JSON.parse(raw.toString())).catch(error => console.error(error)));
@@ -81,6 +91,8 @@ async function handleMessage(message) {
     return;
   }
   if (message.type === 'bridge.outbox.ack') return acknowledgeBridgeOutbox(message);
+  if (message.type === 'agentslack.delivery.accepted') return agentSlackAdapter?.accepted(message);
+  if (message.type === 'agentslack.delivery.ack') return agentSlackAdapter?.acknowledge(message);
   if (message.type === 'command') {
     try {
       const emit = event => send({ type: 'command.event', requestId: message.requestId, event });
