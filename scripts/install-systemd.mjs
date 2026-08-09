@@ -45,21 +45,27 @@ const environment = {
 const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
 const runtimeGroup = runtime === 'incus' ? 'incus-admin' : 'lxd';
-let runtimePreStart = '';
+let runtimeDependency = '';
 if (runtime === 'lxd') {
   const forwardingTarget = '/usr/local/lib/agentworks/lxd-docker-forwarding';
+  const forwardingUnitName = 'agentworks-lxd-docker-forwarding.service';
+  const forwardingUnitPath = path.join(stateDir, 'generated', forwardingUnitName);
   execFileSync('sudo', ['install', '-D', '-m', '0755', lxdForwardingSource, forwardingTarget], { stdio: 'inherit' });
-  // Docker can report active before it has created the DOCKER-USER chain on a
-  // cold boot. Retry the scoped LXD forwarding rule until that chain exists;
-  // without it Docker's FORWARD=DROP black-holes every tenant VM's IPv4 egress.
-  runtimePreStart = `ExecStartPre=+/bin/sh -c 'for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do ${forwardingTarget} lxdbr0; iptables -C DOCKER-USER -i lxdbr0 -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\n`;
+  // This runs as root in its own unit. ExecStartPre inherits the Worker `User`
+  // and therefore cannot safely inspect or modify host iptables rules.
+  const forwardingUnit = `[Unit]\nDescription=Agentworks LXD forwarding after Docker\nAfter=docker.service snap.lxd.daemon.service network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart=/bin/sh -c 'for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do ${forwardingTarget} lxdbr0; iptables -C DOCKER-USER -i lxdbr0 -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n`;
+  fs.mkdirSync(path.dirname(forwardingUnitPath), { recursive: true });
+  fs.writeFileSync(forwardingUnitPath, forwardingUnit, { mode: 0o600 });
+  execFileSync('sudo', ['install', '-m', '0644', forwardingUnitPath, `/etc/systemd/system/${forwardingUnitName}`], { stdio: 'inherit' });
+  runtimeDependency = forwardingUnitName;
 }
 const noNewPrivileges = runtime === 'lxd' ? 'false' : 'true';
-const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'}\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\n${runtimePreStart}ExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
+const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'} ${runtimeDependency}\n${runtimeDependency ? `Requires=${runtimeDependency}\n` : ''}Wants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\nExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
 fs.mkdirSync(path.dirname(unitPath), { recursive: true });
 fs.writeFileSync(unitPath, unit, { mode: 0o600 });
 execFileSync('sudo', ['install', '-m', '0644', unitPath, `/etc/systemd/system/${unitName}`], { stdio: 'inherit' });
 execFileSync('sudo', ['systemctl', 'daemon-reload'], { stdio: 'inherit' });
+if (runtimeDependency) execFileSync('sudo', ['systemctl', 'enable', '--now', runtimeDependency], { stdio: 'inherit' });
 execFileSync('sudo', ['systemctl', 'enable', '--now', unitName], { stdio: 'inherit' });
 execFileSync('sudo', ['systemctl', 'restart', unitName], { stdio: 'inherit' });
 console.log(`localagentworker installed: /etc/systemd/system/${unitName}`);
