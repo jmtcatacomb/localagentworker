@@ -1211,8 +1211,13 @@ set -e
 install -m 0755 "$1" "$HOME/.local/bin/agentworks-bridge"
 rm -f "$1"
 export PATH="$HOME/.local/bin:$PATH"
-codex mcp get agentworks-bridge >/dev/null 2>&1 || codex mcp add agentworks-bridge -- agentworks-bridge mcp
-claude mcp get agentworks-bridge >/dev/null 2>&1 || claude mcp add --scope user agentworks-bridge -- agentworks-bridge mcp
+bridge_command="$HOME/.local/bin/agentworks-bridge"
+# A child spawned by Codex/Claude can have a narrowed PATH. Persist an absolute
+# executable path so the MCP bridge remains reachable from managed sessions.
+codex mcp remove agentworks-bridge >/dev/null 2>&1 || true
+codex mcp add agentworks-bridge -- "$bridge_command" mcp
+claude mcp remove agentworks-bridge --scope user >/dev/null 2>&1 || true
+claude mcp add --scope user agentworks-bridge -- "$bridge_command" mcp
 agentworks-bridge list-known >/dev/null
 `;
   await run(limactl, ['shell', '-y', name, 'bash', '-lc', script, 'agentworks-bridge-install', stagingPath], { timeoutMs: 60_000, quiet: true });
