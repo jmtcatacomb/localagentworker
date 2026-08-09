@@ -61,8 +61,11 @@ setup_worker_linux() {
       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y incus qemu-system
       sudo incus admin init --minimal
       sudo usermod -aG incus-admin "${SUDO_USER:-$USER}"
+    elif command -v yum >/dev/null 2>&1 && [ -x "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh" ]; then
+      AGENTWORKS_HOST_BOOTSTRAP=amazonlinux2 "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh"
+      RUNTIME=lxd
     else
-      echo "Host Worker pending: RPM hosts require an initialized Incus-compatible runtime. Set AGENTWORKS_LINUX_RUNTIME=lxd after installing LXD, then rerun setup-worker." >&2
+      echo "Host Worker pending: this RPM host requires an initialized Incus-compatible runtime. Set AGENTWORKS_LINUX_RUNTIME=lxd after installing LXD, then rerun setup-worker." >&2
       echo "Agentworks refuses to silently replace VM isolation with containers." >&2
       return 1
     fi
@@ -79,7 +82,18 @@ setup_worker_linux() {
 
 case "${1:-help}" in
   install)
-    command -v docker >/dev/null 2>&1 || { echo "Docker is required." >&2; exit 1; }
+    if ! command -v docker >/dev/null 2>&1; then
+      if [ "$(uname -s)" = "Linux" ] && command -v yum >/dev/null 2>&1 && [ -x "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh" ]; then
+        AGENTWORKS_HOST_BOOTSTRAP=amazonlinux2 "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh"
+      else
+        echo "Docker is required." >&2
+        exit 1
+      fi
+    fi
+    if ! docker info >/dev/null 2>&1; then
+      echo "Docker was installed or group membership changed. Reconnect SSH, then rerun ./agentworks install." >&2
+      exit 1
+    fi
     bootstrap_config
     compose up -d --build
     setup_worker

@@ -81,7 +81,7 @@ The current Agentworks codebase supports the reference environment only:
 | --- | --- | --- | --- |
 | macOS | Docker Compose | Lima VZ | reference implementation |
 | Ubuntu 24.04+ | Docker Compose | Incus VM adapter + systemd service | implementation ready; cloud E2E pending |
-| Amazon Linux 2 | Docker Compose may work | Incus/LXD-compatible runtime must be probed/installed first | blocked until host probe passes |
+| Amazon Linux 2 | Docker Compose | Snap LXD VM adapter + systemd service | bootstrap implemented; clean-host E2E pending |
 | Windows | Docker Desktop may work | Hyper-V/WSL2 adapter | probe/adapter pending |
 
 Thus a three-OS E2E must not claim success today. Ubuntu has a concrete VM adapter,
@@ -161,9 +161,9 @@ unrestricted Docker socket or cloud credentials.
 
 - Ubuntu clean-host cloud E2E for the Incus Worker, systemd installation, VM
   lifecycle, bridge injection, resource updates and port relay.
-- Amazon Linux 2 runtime adapter selection after a real host probe. Upstream Incus
-  does not list Amazon Linux 2 as a packaged server target, so the Host Agent must
-  only choose an initialized compatible runtime that passes the VM/KVM probe.
+- Amazon Linux 2 clean-host cloud E2E. The bootstrap chooses the documented portable
+  Snap LXD route (not a container fallback), then must prove `/dev/kvm`, VM launch,
+  guest egress and centrally approved port forwarding on the target AMI.
 - Windows Hyper-V/WSL2 adapter with a documented isolation contract and service
   installation path.
 - An AgentSlack adapter for Agentworks’ session wake layer. AgentSlack’s Claude

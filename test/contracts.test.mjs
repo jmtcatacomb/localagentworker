@@ -114,6 +114,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
   const ubuntuLaunch = fs.readFileSync('scripts/e2e/aws-ubuntu-launch.mjs', 'utf8');
   const ubuntuBootstrap = fs.readFileSync('scripts/e2e/bootstrap-host-ubuntu.sh', 'utf8');
+  const amazonLinuxBootstrap = fs.readFileSync('scripts/e2e/bootstrap-host-amazonlinux2.sh', 'utf8');
   const lxdForwarding = fs.readFileSync('worker/runtime/lxd-docker-forwarding.sh', 'utf8');
   assert.match(installer, /setup_worker_linux/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
@@ -133,6 +134,10 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(ubuntuBootstrap, /\/dev\/kvm/);
   assert.match(ubuntuBootstrap, /docker-compose-v2/);
   assert.match(ubuntuBootstrap, /build-essential/);
+  assert.match(amazonLinuxBootstrap, /AGENTWORKS_HOST_BOOTSTRAP=amazonlinux2/);
+  assert.match(amazonLinuxBootstrap, /docker-compose-plugin/);
+  assert.match(amazonLinuxBootstrap, /snap install lxd/);
+  assert.match(amazonLinuxBootstrap, /\/dev\/kvm/);
   assert.match(installer, /lxc storage list --format csv/);
   assert.match(installer, /lxd init --minimal/);
   assert.match(installer, /AGENTWORKS_GUEST_HOME/);
