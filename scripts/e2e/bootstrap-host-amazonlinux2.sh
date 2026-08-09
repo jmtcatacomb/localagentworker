@@ -27,7 +27,7 @@ command -v docker >/dev/null 2>&1 || need_docker=true
 if [ -f /etc/yum.repos.d/docker-ce.repo ] && command -v yum-config-manager >/dev/null 2>&1; then
   sudo yum-config-manager --disable docker-ce-stable >/dev/null 2>&1 || true
 fi
-sudo yum install -y ca-certificates curl git python3 make gcc-c++
+sudo yum install -y ca-certificates curl git python3 make gcc-c++ xz
 
 if [ "$need_docker" = true ]; then
   # Docker's CentOS repository substitutes AL2's VERSION_ID ("2") into its
@@ -61,15 +61,25 @@ fi
 node_major=0
 if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0); fi
 if [ "$node_major" -lt 20 ]; then
-  # AL2's glibc is 2.26. Current Node 24 RPMs require glibc 2.28, while
-  # Node 20 LTS supports this host and covers every Host Worker API we use.
-  # setup_20.x reuses the nodesource repository names. Remove a previous
-  # incompatible 24.x definition/cache before adding it, otherwise yum can
-  # retain the newer-but-wrong repodata.
+  # AL2's glibc is 2.26. NodeSource's contemporary RPM metadata can resolve
+  # to a Node 24 build requiring glibc 2.28 even after setup_20.x.  Use the
+  # official Node 20 Linux tarball (glibc 2.17 baseline) instead.
+  node_version=${AGENTWORKS_NODE_VERSION:-v20.19.5}
+  case "$(uname -m)" in x86_64) node_arch=x64 ;; aarch64|arm64) node_arch=arm64 ;; *) echo "Unsupported Node architecture: $(uname -m)" >&2; exit 1 ;; esac
+  node_archive="node-${node_version}-linux-${node_arch}.tar.xz"
+  node_tmp=$(mktemp)
+  trap 'rm -f "$node_tmp"' EXIT
   sudo rm -f /etc/yum.repos.d/nodesource*.repo
   sudo yum clean all
-  curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-  sudo yum install -y nodejs
+  curl --fail --location --proto '=https' --tlsv1.2 "https://nodejs.org/dist/${node_version}/${node_archive}" -o "$node_tmp"
+  sudo install -d -m 0755 /opt/agentworks-node
+  sudo tar -xJf "$node_tmp" -C /opt/agentworks-node
+  sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/node" /usr/local/bin/node
+  sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/npm" /usr/local/bin/npm
+  sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/npx" /usr/local/bin/npx
+  node --version | grep -Eq '^v2[0-9]\.' || { echo "Node 20+ installation failed." >&2; exit 1; }
+  rm -f "$node_tmp"
+  trap - EXIT
 fi
 
 if ! command -v lxc >/dev/null 2>&1; then
