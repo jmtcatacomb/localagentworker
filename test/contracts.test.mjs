@@ -135,7 +135,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(ubuntuBootstrap, /docker-compose-v2/);
   assert.match(ubuntuBootstrap, /build-essential/);
   assert.match(amazonLinuxBootstrap, /AGENTWORKS_HOST_BOOTSTRAP=amazonlinux2/);
-  assert.match(amazonLinuxBootstrap, /docker-compose-plugin/);
+  assert.match(amazonLinuxBootstrap, /docker compose version/);
+  assert.match(amazonLinuxBootstrap, /amazon-linux-extras install -y docker/);
+  assert.match(amazonLinuxBootstrap, /docker-compose-linux-/);
   assert.match(amazonLinuxBootstrap, /snap install lxd/);
   assert.match(amazonLinuxBootstrap, /\/dev\/kvm/);
   assert.match(installer, /lxc storage list --format csv/);

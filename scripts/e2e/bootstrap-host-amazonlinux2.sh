@@ -25,12 +25,32 @@ command -v docker >/dev/null 2>&1 || need_docker=true
 sudo yum install -y ca-certificates curl git python3 make gcc-c++
 
 if [ "$need_docker" = true ]; then
-  # The Docker CE repository supplies both Engine and Compose v2 for AL2.
-  sudo yum install -y yum-utils
-  sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-  sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  # Docker's CentOS repository substitutes AL2's VERSION_ID ("2") into its
+  # URL and returns 404.  Use the AL2-maintained Docker package instead.
+  if command -v amazon-linux-extras >/dev/null 2>&1; then
+    sudo amazon-linux-extras install -y docker
+  else
+    sudo yum install -y docker
+  fi
   sudo systemctl enable --now docker
   sudo usermod -aG docker "${SUDO_USER:-$USER}"
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  # AL2's Docker package does not ship Compose v2.  Install the official
+  # standalone CLI plugin at Docker's documented discovery path.  Pin the
+  # version so a repeatable Host Agent run does not silently change binaries.
+  compose_version=${AGENTWORKS_DOCKER_COMPOSE_VERSION:-v2.40.3}
+  case "$(uname -m)" in x86_64) compose_arch=x86_64 ;; aarch64|arm64) compose_arch=aarch64 ;; *) echo "Unsupported Compose architecture: $(uname -m)" >&2; exit 1 ;; esac
+  temp=$(mktemp)
+  trap 'rm -f "$temp"' EXIT
+  curl --fail --location --proto '=https' --tlsv1.2 \
+    "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${compose_arch}" \
+    -o "$temp"
+  sudo install -D -m 0755 "$temp" /usr/local/lib/docker/cli-plugins/docker-compose
+  docker compose version >/dev/null || { echo "Docker Compose v2 plugin installation failed." >&2; exit 1; }
+  rm -f "$temp"
+  trap - EXIT
 fi
 
 node_major=0
