@@ -63,6 +63,11 @@ if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.
 if [ "$node_major" -lt 20 ]; then
   # AL2's glibc is 2.26. Current Node 24 RPMs require glibc 2.28, while
   # Node 20 LTS supports this host and covers every Host Worker API we use.
+  # setup_20.x reuses the nodesource repository names. Remove a previous
+  # incompatible 24.x definition/cache before adding it, otherwise yum can
+  # retain the newer-but-wrong repodata.
+  sudo rm -f /etc/yum.repos.d/nodesource*.repo
+  sudo yum clean all
   curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
   sudo yum install -y nodejs
 fi
