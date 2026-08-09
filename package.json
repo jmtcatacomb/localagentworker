@@ -12,6 +12,6 @@
     "check": "node --check master/src/server.mjs && node --check worker/src/worker.mjs && node --check master/public/app.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   }
 }

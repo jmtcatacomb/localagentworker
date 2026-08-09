@@ -60,8 +60,10 @@ fi
 
 node_major=0
 if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0); fi
-if [ "$node_major" -lt 22 ]; then
-  curl -fsSL https://rpm.nodesource.com/setup_24.x | sudo bash -
+if [ "$node_major" -lt 20 ]; then
+  # AL2's glibc is 2.26. Current Node 24 RPMs require glibc 2.28, while
+  # Node 20 LTS supports this host and covers every Host Worker API we use.
+  curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
   sudo yum install -y nodejs
 fi
 
