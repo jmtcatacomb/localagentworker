@@ -165,8 +165,10 @@ if ($command -eq 'create') {
   $guestIp=Guest-StaticIp $name; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=Ensure-AgentworksSwitch
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
-  $guestMac=((Get-VMNetworkAdapter -VMName $vm.Name).MacAddress -replace '(.{2})(?!$)','$1:'); Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
-  Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $dir 'seed.iso') | Out-Null
+  # Create the ISO from a staging directory. The instance root now contains
+  # Hyper-V's locked VM configuration files, which must never be added to it.
+  $seedDir=Join-Path $dir 'seed-input'; $guestMac=((Get-VMNetworkAdapter -VMName $vm.Name).MacAddress -replace '(.{2})(?!$)','$1:'); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
+  Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $seedDir 'seed.iso') | Out-Null
   Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
 $rest=@($argvCopy | Select-Object -Skip 1 | Where-Object { $_ -ne '-y' })
