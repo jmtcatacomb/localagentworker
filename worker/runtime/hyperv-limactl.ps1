@@ -40,9 +40,32 @@ package_update: false
   $fs.VolumeName = 'cidata'
   $fs.Root.AddTree($directory,$false)
   $image = $fs.CreateResultImage()
-  $stream = $image.ImageStream
-  $target = [System.IO.File]::Create((Join-Path $directory 'seed.iso'))
-  try { $buffer = New-Object byte[] 2048; while (($count=$stream.Read($buffer,0,$buffer.Length)) -gt 0) { $target.Write($buffer,0,$count) } } finally { $target.Dispose() }
+  if (-not ('Agentworks.ImapiStreamWriter' -as [type])) {
+    Add-Type -CompilerOptions '/unsafe' -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices.ComTypes;
+namespace Agentworks {
+  public static class ImapiStreamWriter {
+    public static void Write(object source, string destination) {
+      IStream input = source as IStream;
+      if (input == null) throw new InvalidOperationException("IMAPI did not return an IStream.");
+      using (var output = File.Create(destination)) {
+        int read;
+        do { var buffer = Read(input, 32768, out read); if (read > 0) output.Write(buffer, 0, read); } while (read > 0);
+      }
+    }
+    unsafe static byte[] Read(IStream stream, int length, out int read) {
+      var buffer = new byte[length]; int actual = 0; int* pointer = &actual;
+      stream.Read(buffer, length, (IntPtr)pointer); read = actual; return buffer;
+    }
+  }
+}
+'@
+  }
+  # ImageStream is an IMAPI IStream COM object, not a .NET Stream. The CLR
+  # can cast it to ComTypes.IStream even though PowerShell itself cannot.
+  [Agentworks.ImapiStreamWriter]::Write($image.ImageStream, (Join-Path $directory 'seed.iso'))
 }
 function Ensure-BaseImage {
   $baseDir=Join-Path $root 'base'; $archive=Join-Path $baseDir 'ubuntu-24.04-azure.vhd.tar.gz'; $vhd=Join-Path $baseDir 'ubuntu-24.04-azure.vhd'
