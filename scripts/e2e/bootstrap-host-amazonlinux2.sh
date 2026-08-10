@@ -60,11 +60,12 @@ fi
 
 node_major=0
 if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0); fi
-if [ "$node_major" -lt 20 ]; then
-  # AL2's glibc is 2.26. NodeSource's contemporary RPM metadata can resolve
-  # to a Node 24 build requiring glibc 2.28 even after setup_20.x.  Use the
-  # official Node 20 Linux tarball (glibc 2.17 baseline) instead.
-  node_version=${AGENTWORKS_NODE_VERSION:-v20.19.5}
+if [ "$node_major" -lt 16 ]; then
+  # AL2's glibc is 2.26. Current Node 18+ official binaries and NodeSource
+  # RPMs require glibc 2.28. Node 16.20.2 is the newest official Linux binary
+  # that executes on this target; its fetch API is enabled below via
+  # --experimental-fetch for the Host Worker compatibility lane.
+  node_version=${AGENTWORKS_NODE_VERSION:-v16.20.2}
   case "$(uname -m)" in x86_64) node_arch=x64 ;; aarch64|arm64) node_arch=arm64 ;; *) echo "Unsupported Node architecture: $(uname -m)" >&2; exit 1 ;; esac
   node_archive="node-${node_version}-linux-${node_arch}.tar.xz"
   node_tmp=$(mktemp)
@@ -77,7 +78,7 @@ if [ "$node_major" -lt 20 ]; then
   sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/node" /usr/local/bin/node
   sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/npm" /usr/local/bin/npm
   sudo ln -sfn "/opt/agentworks-node/node-${node_version}-linux-${node_arch}/bin/npx" /usr/local/bin/npx
-  node --version | grep -Eq '^v2[0-9]\.' || { echo "Node 20+ installation failed." >&2; exit 1; }
+  node --version | grep -Eq '^v1[6-9]\.|^v[2-9][0-9]\.' || { echo "Node 16+ installation failed." >&2; exit 1; }
   rm -f "$node_tmp"
   trap - EXIT
 fi

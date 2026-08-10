@@ -10,6 +10,7 @@ const env = Object.fromEntries(fs.readFileSync(path.join(stateDir, 'config/maste
 const runtime = process.env.AGENTWORKS_LINUX_RUNTIME || (commandExists('incus') ? 'incus' : commandExists('lxc') ? 'lxd' : '');
 if (!runtime) throw new Error('Incus/LXD runtime is unavailable; install and initialize it before installing the Worker service');
 const node = process.execPath;
+const nodeMajor = Number(process.versions.node.split('.')[0] || 0);
 const port = env.MASTER_PORT || '8080';
 const adapter = path.join(root, 'worker/runtime/incus-limactl');
 const lxdForwardingSource = path.join(root, 'worker/runtime/lxd-docker-forwarding.sh');
@@ -32,6 +33,9 @@ const environment = {
   AGENTWORKS_INCUS_BIN: runtime === 'lxd' ? 'lxc' : 'incus',
   LIMACTL_BIN: adapter,
   LIMA_HOME: path.join(stateDir, 'runtime'),
+  // Node 16 is the glibc-compatible AL2 Host Worker lane. It exposes fetch
+  // behind this documented compatibility flag; modern Node ignores it here.
+  ...(nodeMajor >= 16 && nodeMajor < 18 ? { NODE_OPTIONS: '--experimental-fetch' } : {}),
   AUTO_PROVISION: 'true',
   AUTO_CELLS: 'aw-a1,aw-b1',
   // Ubuntu cloud VM images reserve uid/gid 1000 for their non-root `ubuntu`

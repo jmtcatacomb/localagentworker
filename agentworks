@@ -13,6 +13,15 @@ AGENTWORKS_GUEST_UID=${AGENTWORKS_GUEST_UID:-1000}
 AGENTWORKS_GUEST_GID=${AGENTWORKS_GUEST_GID:-1000}
 AGENTWORKS_GUEST_HOME=${AGENTWORKS_GUEST_HOME:-/home/ubuntu}
 
+# Amazon Linux 2 uses a glibc-compatible Node 16 Host Worker. Its built-in
+# fetch API needs this flag; modern Node versions never enter this branch.
+if command -v node >/dev/null 2>&1; then
+  AGENTWORKS_NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  if [ "$AGENTWORKS_NODE_MAJOR" -ge 16 ] && [ "$AGENTWORKS_NODE_MAJOR" -lt 18 ]; then
+    export NODE_OPTIONS="${NODE_OPTIONS:-} --experimental-fetch"
+  fi
+fi
+
 compose() {
   docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" "$@"
 }
@@ -39,7 +48,7 @@ setup_worker() {
     fi
   fi
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    echo "Host Worker pending: Node.js 20+ is required by the Mac MVP worker."
+    echo "Host Worker pending: Node.js 16+ is required by the Mac MVP worker."
     echo "The production bootstrap will replace this with a self-contained worker binary."
     return 0
   fi
@@ -74,7 +83,7 @@ setup_worker_linux() {
   if [ "$RUNTIME" = "lxd" ] && ! sudo lxc storage list --format csv 2>/dev/null | grep -q .; then
     sudo lxd init --minimal
   fi
-  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then echo "Host Worker pending: Node.js 20+ is required." >&2; return 1; fi
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then echo "Host Worker pending: Node.js 16+ is required." >&2; return 1; fi
   chmod 755 "$ROOT/worker/runtime/incus-limactl"
   npm install --prefix "$ROOT/worker" --omit=dev
   AGENTWORKS_ROOT="$ROOT" AGENTWORKS_STATE_DIR="$STATE_DIR" AGENTWORKS_LINUX_RUNTIME="$RUNTIME" node "$ROOT/scripts/install-systemd.mjs"
