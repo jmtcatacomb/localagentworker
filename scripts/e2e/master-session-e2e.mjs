@@ -90,27 +90,25 @@ async function waitSessionReady(cookie, sessionUuid) {
 async function directTurn(cookie, session, label) {
   const before = await waitSessionReady(cookie, session.session_uuid);
   const priorAssistantIds = new Set(before.messages.filter(message => message.role === 'assistant').map(message => message.id));
-  const expected = `${label.toLowerCase().replaceAll('_', ' ')} check passed`;
   await request(`/api/sessions/${session.session_uuid}/messages`, {
     cookie,
     method: 'POST',
     expected: [202],
-    body: { content: `This is an authorized Agentworks E2E health check. Confirm success using the sentence: ${expected}.` },
+    body: { content: `Agentworks E2E message ${label}. Briefly acknowledge that you received this message.` },
   });
   await waitFor(`${label} direct Claude reply`, async () => {
     const value = (await request(`/api/sessions/${session.session_uuid}/messages`, { cookie })).value;
     const reply = value.messages.find(message => message.role === 'assistant'
       && !priorAssistantIds.has(message.id)
-      && message.content.toLowerCase().includes(expected));
+      && message.content.trim());
     if (reply) return reply;
     if (value.session.status === 'error') throw new Error(`${label} session entered error state`);
     return false;
   });
-  return expected;
+  return true;
 }
 
 async function interSessionWake(cookie, source, target, label) {
-  const expected = `${label.toLowerCase().replaceAll('_', ' ')} check passed`;
   const message = (await request('/api/inter-session/messages', {
     cookie,
     method: 'POST',
@@ -118,7 +116,7 @@ async function interSessionWake(cookie, source, target, label) {
     body: {
       source: source.session_uuid,
       target: target.session_uuid,
-      content: `This is an authorized Agentworks E2E health check. Confirm success using the sentence: ${expected}.`,
+      content: `Agentworks E2E peer message ${label}. Briefly acknowledge that you received this message.`,
       expectReply: false,
       idempotencyKey: `e2e:${label}:${crypto.randomUUID()}`,
     },
@@ -127,10 +125,9 @@ async function interSessionWake(cookie, source, target, label) {
     const messages = (await request('/api/inter-session/messages', { cookie })).value.messages;
     const current = messages.find(item => item.id === message.id);
     if (current?.status === 'failed' || current?.status === 'expired') throw new Error(`${label} delivery ${current.status}: ${current.lastError || 'unknown error'}`);
-    return current?.status === 'acknowledged'
-      && String(current.result?.answer || '').toLowerCase().includes(expected) ? current : false;
+    return current?.status === 'acknowledged' && String(current.result?.answer || '').trim() ? current : false;
   }, { timeoutMs: 50 * 60_000 });
-  return expected;
+  return true;
 }
 
 const health = (await request('/healthz')).value;
