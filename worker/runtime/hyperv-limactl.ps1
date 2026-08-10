@@ -126,12 +126,17 @@ function Ensure-BaseImage {
     }
     # GNU tar preserves the image's sparse representation and NTFS may retain
     # compression. Hyper-V rejects either attribute for a differencing parent.
-    & compact.exe /U /Q $vhd | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail "failed to uncompress Hyper-V base image (compact exit $LASTEXITCODE)" }
-    & cipher.exe /D /Q $vhd | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail "failed to decrypt Hyper-V base image (cipher exit $LASTEXITCODE)" }
-    & fsutil.exe sparse setflag $vhd 0 | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail "failed to clear sparse flag on Hyper-V base image (fsutil exit $LASTEXITCODE)" }
+    # After the first success, never touch the locked parent while cells start.
+    $normalized = "$vhd.agentworks-normalized"
+    if (!(Test-Path $normalized)) {
+      & compact.exe /U /Q $vhd | Out-Null
+      if ($LASTEXITCODE -ne 0) { Fail "failed to uncompress Hyper-V base image (compact exit $LASTEXITCODE)" }
+      & cipher.exe /D /Q $vhd | Out-Null
+      if ($LASTEXITCODE -ne 0) { Fail "failed to decrypt Hyper-V base image (cipher exit $LASTEXITCODE)" }
+      & fsutil.exe sparse setflag $vhd 0 | Out-Null
+      if ($LASTEXITCODE -ne 0) { Fail "failed to clear sparse flag on Hyper-V base image (fsutil exit $LASTEXITCODE)" }
+      Set-Content -NoNewline -Encoding ascii $normalized 'ok'
+    }
   } finally { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() }
   return $vhd
 }
