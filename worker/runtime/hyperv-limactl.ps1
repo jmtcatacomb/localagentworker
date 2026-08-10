@@ -81,13 +81,25 @@ function Ensure-BaseImage {
     if (!(Test-Path $vhd)) {
       $partial="$archive.partial"
       Remove-Item -Force $partial -ErrorAction SilentlyContinue
-      Invoke-WebRequest -UseBasicParsing -Uri $imageUrl -OutFile $partial
+      # Invoke-WebRequest can stall indefinitely while streaming a large image
+      # under the SYSTEM scheduled-task account.  curl.exe is inbox on supported
+      # Windows Server releases and gives us bounded connection retries.
+      & "$env:SystemRoot\System32\curl.exe" '--fail' '--location' '--retry' '3' '--connect-timeout' '30' '--output' $partial $imageUrl
+      if ($LASTEXITCODE -ne 0) { Fail "failed to download Hyper-V base image (curl exit $LASTEXITCODE)" }
       Move-Item -Force $partial $archive
       & tar.exe -xzf $archive -C $baseDir
       $candidate=Get-ChildItem $baseDir -Filter '*.vhd' | Select-Object -First 1
       if (!$candidate) { Fail 'Ubuntu Azure VHD archive did not contain a VHD' }
       Move-Item -Force $candidate.FullName $vhd
     }
+    # GNU tar preserves the image's sparse representation and NTFS may retain
+    # compression. Hyper-V rejects either attribute for a differencing parent.
+    & compact.exe /U /Q $vhd
+    if ($LASTEXITCODE -ne 0) { Fail "failed to uncompress Hyper-V base image (compact exit $LASTEXITCODE)" }
+    & cipher.exe /D /Q $vhd
+    if ($LASTEXITCODE -ne 0) { Fail "failed to decrypt Hyper-V base image (cipher exit $LASTEXITCODE)" }
+    & fsutil.exe sparse setflag $vhd 0
+    if ($LASTEXITCODE -ne 0) { Fail "failed to clear sparse flag on Hyper-V base image (fsutil exit $LASTEXITCODE)" }
   } finally { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() }
   return $vhd
 }
@@ -110,7 +122,9 @@ if ($command -eq 'create') {
   $emptyQuoted=([char]34).ToString()+([char]34).ToString()
   $keygen=Start-Process -FilePath ssh-keygen.exe -ArgumentList @('-q','-t','ed25519','-N',$emptyQuoted,'-f',$key) -Wait -PassThru -NoNewWindow
   if($keygen.ExitCode -ne 0){Fail 'ssh-keygen failed'}
-  Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()); $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhdx'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
+  # Hyper-V requires a differencing child to keep the same disk format as its
+  # parent. Canonical's Azure image is VHD (not VHDX).
+  Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()); $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=(Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue); if(!$switch){Fail 'Hyper-V Default Switch is unavailable'}
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
   Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $dir 'seed.iso') | Out-Null

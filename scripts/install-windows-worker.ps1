@@ -38,6 +38,7 @@ $taskEnv = @{
 $launcher = Join-Path $StateDir 'generated\start-windows-worker.cmd'
 $workerLog = Join-Path $StateDir 'logs\worker.log'
 New-Item -ItemType Directory -Force (Split-Path $launcher) | Out-Null
+New-Item -ItemType Directory -Force (Split-Path $workerLog) | Out-Null
 ($taskEnv.GetEnumerator() | Sort-Object Name | ForEach-Object { "set `"$($_.Name)=$($_.Value)`"" }) + @("`"$node`" `"$workerScript`" >> `"$workerLog`" 2>&1") | Set-Content -Encoding ascii $launcher
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/d /c `"$launcher`"" -WorkingDirectory $Root
 # A host worker must survive SSH/RDP logout.  SYSTEM has the Hyper-V privilege
