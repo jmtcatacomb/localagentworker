@@ -10,8 +10,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(import.meta.dirname, '..', '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const agentSlackRoot = process.env.AGENTSLACK_ROOT || '/Users/zo/Projects/expsite/agentslack';
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(root, '.agentworks'));
 const protectedClaudeToken = path.join(stateDir, 'secrets', 'claude-oauth-token');

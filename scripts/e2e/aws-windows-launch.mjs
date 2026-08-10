@@ -4,9 +4,10 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 if (process.env.AGENTWORKS_E2E_APPROVE !== 'launch-windows') throw new Error('Set AGENTWORKS_E2E_APPROVE=launch-windows to create a Windows E2E host.');
-const root = path.resolve(import.meta.dirname, '..', '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(root, '.agentworks'));
 const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
 const instanceType = process.env.AGENTWORKS_E2E_INSTANCE_TYPE || 'c7i.2xlarge';

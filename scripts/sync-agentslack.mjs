@@ -3,11 +3,12 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ensureFetch } from './lib/node-fetch-compat.mjs';
 
 ensureFetch(import.meta.url);
 
-const root = path.resolve(import.meta.dirname, '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(root, '.agentworks'));
 const envFile = path.join(stateDir, 'config', 'master.env');
 const controlFile = path.join(stateDir, 'secrets', 'agentslack-agentworktest-admin.json');

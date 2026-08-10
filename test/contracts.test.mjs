@@ -272,6 +272,7 @@ test('AgentSlack wake bindings keep tokens in Worker state and ACK only after ex
   assert.match(adapter, /agentworks_worker_not_registered/);
   assert.match(adapter, /'agentslack', 'bindings\.json'/);
   const sync = fs.readFileSync('scripts/sync-agentslack.mjs', 'utf8');
+  assert.doesNotMatch(sync, /import\.meta\.dirname/);
   assert.match(sync, /archived_at IS NULL/);
   assert.match(sync, /identityMode: 'host_verified'/);
   assert.match(sync, /mode: 0o600/);
