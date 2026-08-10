@@ -9,6 +9,14 @@ const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(root
 const envFile = path.join(stateDir, 'config', 'master.env');
 const controlFile = path.join(stateDir, 'secrets', 'agentslack-agentworktest-admin.json');
 const bindingFile = path.join(stateDir, 'agentslack', 'bindings.json');
+const masterEnv = Object.fromEntries(fs.readFileSync(envFile, 'utf8').split(/\r?\n/)
+  .filter(line => line.includes('=')).map(line => {
+    const index = line.indexOf('=');
+    return [line.slice(0, index), line.slice(index + 1)];
+  }));
+const installationNamespace = crypto.createHash('sha256')
+  .update(masterEnv.MASTER_AGENT_TOKEN || `${root}:${masterEnv.WORKER_TOKEN || ''}`)
+  .digest('hex').slice(0, 8);
 
 if (!fs.existsSync(controlFile)) {
   throw new Error(`AgentSlack logical Server credential is missing: ${controlFile}`);
@@ -52,7 +60,10 @@ function sessions() {
 }
 
 function normalizedHandle(session) {
-  const raw = `aw-${session.tenantSlug}-${session.alias}`.toLowerCase()
+  // Tenant/session aliases are only unique inside one Agentworks installation.
+  // Prefix a one-way installation fingerprint so several OS E2E hosts can join
+  // the same AgentSlack logical Server without claiming each other's handles.
+  const raw = `aw-${installationNamespace}-${session.tenantSlug}-${session.alias}`.toLowerCase()
     .replace(/[^a-z0-9가-힣._-]+/gu, '-')
     .replace(/^-+|-+$/g, '');
   if (raw.length <= 64) return raw;
@@ -148,7 +159,17 @@ for (const session of sessions()) {
   }
   let handle = normalizedHandle(session);
   if (current) handle = `${handle.slice(0, 54)}-${crypto.randomBytes(4).toString('hex')}`;
-  const binding = await register(session, handle);
+  let binding;
+  try {
+    binding = await register(session, handle);
+  } catch (error) {
+    // A deleted local binding file cannot recover an AgentSlack bearer token.
+    // Register a new unique handle while leaving the unreachable old identity
+    // inert; Server admins may clean that stale identity up independently.
+    if (!String(error.message).includes('409 handle_already_exists')) throw error;
+    handle = `${handle.slice(0, 54)}-${crypto.randomBytes(4).toString('hex')}`;
+    binding = await register(session, handle);
+  }
   next.push(binding);
   results.push({ sessionUuid: session.sessionUuid, handle, action: current ? 'replaced' : 'registered' });
 }

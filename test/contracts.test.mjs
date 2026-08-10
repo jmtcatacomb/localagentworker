@@ -268,6 +268,8 @@ test('AgentSlack wake bindings keep tokens in Worker state and ACK only after ex
   assert.match(sync, /archived_at IS NULL/);
   assert.match(sync, /identityMode: 'host_verified'/);
   assert.match(sync, /mode: 0o600/);
+  assert.match(sync, /installationNamespace/);
+  assert.match(sync, /409 handle_already_exists/);
   assert.match(sync, /AgentSlack register/);
   assert.match(adapter, /auto_ack=false/);
   assert.match(adapter, /inbox\/ack/);
