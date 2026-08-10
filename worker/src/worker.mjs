@@ -265,6 +265,18 @@ print(json.dumps({'path':p,'parent':None if p=='/' else os.path.dirname(p),'item
 async function runSessionTurn(cell, payload, emit = () => {}) {
   await assertRunning(cell);
   return withSessionLock(payload.sessionUuid, async () => {
+    if (isMasterCell(cell) && isWindowsRuntime && String(payload.harness) === 'claude') {
+      await syncClaudeOauthToMasterHome();
+      const response = await fetch(`${masterAgentUrl}/api/internal/master-agent/claude-turn`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'X-Agentworks-Master-Token': masterAgentToken },
+        body: JSON.stringify({ prompt: payload.prompt, systemPrompt: await sessionRuntimeInstructionsWindowsMaster(payload), model: payload.model, effort: payload.effort, sessionId: payload.nativeSessionId || payload.sessionUuid }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Master Claude turn failed');
+      emit({ type: 'turn.started', turnId: result.nativeSessionId, nativeSessionId: result.nativeSessionId });
+      if (result.answer) emit({ type: 'answer.delta', delta: result.answer });
+      return result;
+    }
     const runtimeInstructions = await sessionRuntimeInstructions(cell, payload);
     const managedPayload = { ...payload, runtimeInstructions };
     const harness = String(payload.harness || '');
@@ -272,6 +284,17 @@ async function runSessionTurn(cell, payload, emit = () => {}) {
     if (harness === 'claude') return claudeTurn(cell, managedPayload, emit);
     throw new Error(`Unsupported harness: ${harness}`);
   });
+}
+
+async function sessionRuntimeInstructionsWindowsMaster(payload) {
+  const response = await fetch(`${masterAgentUrl}/api/inter-session/directory`, { headers: { 'X-Agentworks-Master-Token': masterAgentToken } });
+  const directory = response.ok ? await response.json() : { sessions: [] };
+  const targets = (directory.sessions || []).map(item => `- ${item.address} (UUID ${item.sessionUuid}; ${item.harness}/${item.model}; ${item.status})`).join('\n');
+  return [
+    'You are the Agentworks superadmin Master Agent. Your canonical address is:', payload.address,
+    'Use the Agentworks web control plane and typed administrative MCP capabilities for tenant VM control; actions are audited.',
+    'Known sessions:', targets || '- No sessions registered.',
+  ].join('\n');
 }
 
 async function controlSession(cell, payload) {

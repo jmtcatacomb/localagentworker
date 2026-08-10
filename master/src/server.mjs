@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -55,6 +56,38 @@ app.get('/healthz', async (_req, res) => {
   } catch (error) {
     res.status(503).json({ ok: false, error: error.message });
   }
+});
+
+// Windows runs the native Worker as SYSTEM (for Hyper-V privileges), while
+// its WSL Docker distribution belongs to the installing user.  Let that
+// Worker request a narrow, capability-authenticated Master-Agent Claude turn
+// inside this container instead of attempting to cross the user-owned WSL
+// boundary.  This endpoint is deliberately not a general command executor.
+app.post('/api/internal/master-agent/claude-turn', requireUser, async (req, res) => {
+  if (!req.user.agentCapability) return res.status(403).json({ error: 'Master Agent capability is required.' });
+  const prompt = String(req.body?.prompt || '').trim();
+  const systemPrompt = String(req.body?.systemPrompt || '').slice(0, 100_000);
+  const model = String(req.body?.model || 'haiku').trim();
+  const effort = String(req.body?.effort || '').trim();
+  const sessionId = String(req.body?.sessionId || '').trim();
+  if (!prompt || prompt.length > 100_000 || !/^[a-z0-9._-]{1,120}$/i.test(model) || !/^[0-9a-f-]{36}$/i.test(sessionId)) return res.status(400).json({ error: 'Invalid master Claude turn.' });
+  const credentialPath = path.join(process.env.MASTER_AGENT_HOME || '/master-agent-home', '.agentworks/secrets/claude-oauth-token');
+  let oauthToken = '';
+  try { oauthToken = (await fs.readFile(credentialPath, 'utf8')).trim(); } catch {}
+  if (!oauthToken) return res.status(503).json({ error: 'Master Claude credential is not configured.' });
+  const args = ['-p', prompt, '--append-system-prompt', systemPrompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions', '--model', model, '--session-id', sessionId];
+  if (effort) args.push('--effort', effort);
+  let stdout = ''; let stderr = '';
+  const child = spawn('claude', args, { cwd: process.env.MASTER_AGENT_WORKSPACE || '/workspace/agentworks', env: { ...process.env, HOME: process.env.MASTER_AGENT_HOME || '/master-agent-home', CLAUDE_CODE_OAUTH_TOKEN: oauthToken }, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', data => { stdout += data; });
+  child.stderr.on('data', data => { stderr = (stderr + data).slice(-4000); });
+  child.on('error', error => res.status(500).json({ error: error.message }));
+  child.on('close', code => {
+    if (code !== 0) return res.status(502).json({ error: `Master Claude exited ${code}: ${stderr.trim().slice(-1200)}` });
+    let answer = '';
+    for (const line of stdout.split('\n')) { try { const event = JSON.parse(line); if (event.type === 'result' && typeof event.result === 'string') answer = event.result; } catch {} }
+    res.json({ answer, nativeSessionId: sessionId, telemetry: {}, usage: {} });
+  });
 });
 
 app.post('/api/login', async (req, res) => {
