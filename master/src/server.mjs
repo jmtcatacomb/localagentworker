@@ -75,7 +75,11 @@ app.post('/api/internal/master-agent/claude-turn', requireUser, async (req, res)
   let oauthToken = '';
   try { oauthToken = (await fs.readFile(credentialPath, 'utf8')).trim(); } catch {}
   if (!oauthToken) return res.status(503).json({ error: 'Master Claude credential is not configured.' });
-  const args = ['-p', prompt, '--append-system-prompt', systemPrompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions', '--model', model, '--session-id', sessionId];
+  // Claude Code refuses --dangerously-skip-permissions under root.  The
+  // Master container is root-owned but has no Docker socket or host mount, so
+  // retain Claude's normal CLI permission policy here; privileged VM actions
+  // still go through audited typed Master APIs.
+  const args = ['-p', prompt, '--append-system-prompt', systemPrompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model, '--session-id', sessionId];
   if (effort) args.push('--effort', effort);
   let stdout = ''; let stderr = '';
   const child = spawn('claude', args, { cwd: process.env.MASTER_AGENT_WORKSPACE || '/workspace/agentworks', env: { ...process.env, HOME: process.env.MASTER_AGENT_HOME || '/master-agent-home', CLAUDE_CODE_OAUTH_TOKEN: oauthToken }, stdio: ['ignore', 'pipe', 'pipe'] });
