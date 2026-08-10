@@ -1236,7 +1236,7 @@ async function revokePortRoute(route) {
   if (isWindowsRuntime && /^[0-9a-f-]{36}$/i.test(routeId)) {
     await run('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-Command',
-      `Get-NetFirewallRule -Name 'AgentworksPortRoute-${routeId}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue`,
+      `$rule=Get-NetFirewallRule -Name 'AgentworksPortRoute-${routeId}' -ErrorAction SilentlyContinue; if($rule){$rule | Remove-NetFirewallRule -ErrorAction SilentlyContinue}; exit 0`,
     ], { timeoutMs: 30_000, quiet: true });
   }
   return { revoked: true, existed: Boolean(current) };
