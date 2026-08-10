@@ -168,7 +168,8 @@ if($command -eq 'shell'){
   if($guestCommand.Count -ge 2 -and $guestCommand[0] -eq '--agentworks-bash-base64') {
     try { $program=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($guestCommand[1])) }
     catch { Fail 'shell received an invalid encoded bash program' }
-    $guestCommand=[string[]]@('bash','-lc',$program)+[string[]]@($guestCommand | Select-Object -Skip 2)
+    $tail=@($guestCommand | Select-Object -Skip 2)
+    $guestCommand=@('bash','-lc',$program)+$tail
   }
   Invoke-Guest $meta $guestCommand
 }
