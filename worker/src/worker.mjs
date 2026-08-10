@@ -1205,6 +1205,18 @@ while True:
     server.once('error', fail);
     server.listen(hostPort, bindAddress, () => { server.off('error', fail); resolve(); });
   });
+  if (isWindowsRuntime && bindAddress === '0.0.0.0') {
+    try {
+      await run('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        `New-NetFirewallRule -Name 'AgentworksPortRoute-${routeId}' -DisplayName 'Agentworks approved port ${hostPort}' -Direction Inbound -Protocol TCP -LocalPort ${hostPort} -Action Allow -Profile Any | Out-Null`,
+      ], { timeoutMs: 30_000, quiet: true });
+    } catch (error) {
+      await new Promise(resolve => server.close(() => resolve()));
+      portServers.delete(routeId);
+      throw error;
+    }
+  }
   server.on('error', error => console.error(`port route ${routeId}: ${error.message}`));
   portServers.set(routeId, { server, clients });
   return { routeId, listening: `${bindAddress}:${hostPort}`, target: `${cell.runtime_name}:127.0.0.1:${guestPort}` };
@@ -1213,14 +1225,21 @@ while True:
 async function revokePortRoute(route) {
   const routeId = String(route?.id || '');
   const current = portServers.get(routeId);
-  if (!current) return { revoked: true, existed: false };
-  portServers.delete(routeId);
-  for (const { hostSocket, child } of current.clients) {
-    hostSocket.destroy();
-    if (!child.killed) child.kill('SIGTERM');
+  if (current) {
+    portServers.delete(routeId);
+    for (const { hostSocket, child } of current.clients) {
+      hostSocket.destroy();
+      if (!child.killed) child.kill('SIGTERM');
+    }
+    await new Promise(resolve => current.server.close(() => resolve()));
   }
-  await new Promise(resolve => current.server.close(() => resolve()));
-  return { revoked: true, existed: true };
+  if (isWindowsRuntime && /^[0-9a-f-]{36}$/i.test(routeId)) {
+    await run('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Remove-NetFirewallRule -Name 'AgentworksPortRoute-${routeId}' -ErrorAction SilentlyContinue`,
+    ], { timeoutMs: 30_000, quiet: true });
+  }
+  return { revoked: true, existed: Boolean(current) };
 }
 
 async function assertRunning(cell) {
