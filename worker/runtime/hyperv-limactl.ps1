@@ -166,7 +166,9 @@ if ($command -eq 'create') {
   # parent. Canonical's Azure image is VHD (not VHDX).
   $guestIp=Guest-StaticIp $name; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=Ensure-AgentworksSwitch
-  $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
+  # The generic Ubuntu cloud image is a UEFI/GPT disk, so Hyper-V must use
+  # Generation 2 rather than the BIOS-only Generation 1 profile.
+  $vm=New-VM -Name (Vm-Name $name) -Generation 2 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
   # Create the ISO from a staging directory. The instance root now contains
   # Hyper-V's locked VM configuration files, which must never be added to it.
   $seedDir=Join-Path $dir 'seed-input'; $guestMac=Guest-StaticMac $name; Set-VMNetworkAdapter -VMName $vm.Name -StaticMacAddress ($guestMac -replace ':',''); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
