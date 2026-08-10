@@ -19,7 +19,7 @@ if ! command -v codex >/dev/null 2>&1; then
   curl -fsSL https://chatgpt.com/codex/install.sh | sh
 fi
 if ! command -v claude >/dev/null 2>&1; then
-  curl -fsSL https://claude.ai/install.sh | sh
+  curl -fsSL https://claude.ai/install.sh | bash
 fi
 
 codex --version

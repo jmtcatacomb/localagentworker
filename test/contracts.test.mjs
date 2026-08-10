@@ -209,6 +209,7 @@ test('Claude-only bootstrap uses protected host state rather than Git or service
   assert.match(installer, /setup-master-agent/);
   assert.match(hostCliInstaller, /chatgpt\.com\/codex\/install\.sh/);
   assert.match(hostCliInstaller, /claude\.ai\/install\.sh/);
+  assert.match(hostCliInstaller, /claude\.ai\/install\.sh \| bash/);
   assert.doesNotMatch(hostCliInstaller, /sudo/);
 });
 
