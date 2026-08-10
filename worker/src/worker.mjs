@@ -1498,12 +1498,14 @@ function hypervSafeArgs(args) {
   // after it has crossed the cmd/PowerShell boundary.
   if (hostRuntime !== 'hyperv' || args[0] !== 'shell') return args;
   const bashIndex = args.findIndex((value, index) => index > 1 && value === 'bash' && args[index + 1] === '-lc');
-  if (bashIndex < 0 || typeof args[bashIndex + 2] !== 'string') return args;
+  const pythonIndex = args.findIndex((value, index) => index > 1 && value === 'python3' && args[index + 1] === '-c');
+  const programIndex = bashIndex >= 0 ? bashIndex : pythonIndex;
+  if (programIndex < 0 || typeof args[programIndex + 2] !== 'string') return args;
   return [
-    ...args.slice(0, bashIndex),
-    '--agentworks-bash-base64',
-    Buffer.from(args[bashIndex + 2], 'utf8').toString('base64url'),
-    ...args.slice(bashIndex + 3),
+    ...args.slice(0, programIndex),
+    bashIndex >= 0 ? '--agentworks-bash-base64' : '--agentworks-python-base64',
+    Buffer.from(args[programIndex + 2], 'utf8').toString('base64url'),
+    ...args.slice(programIndex + 3),
   ];
 }
 

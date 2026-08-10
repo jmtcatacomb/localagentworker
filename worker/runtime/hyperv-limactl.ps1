@@ -136,6 +136,19 @@ function Quote-Remote([string]$value) {
 }
 function Invoke-Guest($meta,[string[]]$command) {
   $ip=Wait-Guest $meta
+  if($command.Count -ge 3 -and $command[0] -eq 'python3' -and $command[1] -eq '-c') {
+    $localScript=Join-Path (Instance-Dir $meta.name) ("command-"+[guid]::NewGuid().ToString('N')+".py")
+    $remoteScript="/tmp/$(Split-Path -Leaf $localScript)"
+    [IO.File]::WriteAllText($localScript,[string]$command[2],(New-Object Text.UTF8Encoding($false)))
+    try {
+      & scp.exe '-q' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath $localScript "${guestUser}@${ip}:$remoteScript"
+      if($LASTEXITCODE -ne 0){Fail 'failed to transfer guest Python command'}
+      $tail=@($command | Select-Object -Skip 3 | ForEach-Object { Quote-Remote ([string]$_) })
+      $remoteCommand="python3 $remoteScript" + $(if($tail.Count){' '+($tail -join ' ')}else{''}) + "; rc=`$?; rm -f $remoteScript; exit `$rc"
+      & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" $remoteCommand
+    } finally { Remove-Item -Force $localScript -ErrorAction SilentlyContinue }
+    exit $LASTEXITCODE
+  }
   if($command.Count -ge 3 -and $command[0] -eq 'bash' -and $command[1] -eq '-lc') {
     # Windows cmd/PowerShell and OpenSSH all reparse a remote command string.
     # Transfer a short-lived script instead: only a fixed `bash /tmp/file`
@@ -207,7 +220,7 @@ if($command -eq 'stop'){if((Get-State $meta) -eq 'running'){Stop-VM -Name (Vm-Na
 if($command -eq 'edit'){ $cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cpus=[int]$cpu;Set-VMProcessor -VMName (Vm-Name $name) -Count $meta.cpus};if($mem){$meta.memoryMiB=[int]($mem -replace 'MiB$','');Set-VMMemory -VMName (Vm-Name $name) -DynamicMemoryEnabled $false -StartupBytes ($meta.memoryMiB*1MB)};Write-Meta $name $meta;exit 0 }
 if($command -eq 'shell'){
   $guestCommand=[string[]]@($rest | Select-Object -Skip 1)
-  if($guestCommand.Count -ge 2 -and $guestCommand[0] -eq '--agentworks-bash-base64') {
+  if($guestCommand.Count -ge 2 -and $guestCommand[0] -in @('--agentworks-bash-base64','--agentworks-python-base64')) {
     try {
       $encoded=$guestCommand[1].Replace('-','+').Replace('_','/')
       $encoded=$encoded + ('=' * ((4 - ($encoded.Length % 4)) % 4))
@@ -215,7 +228,8 @@ if($command -eq 'shell'){
     }
     catch { Fail 'shell received an invalid encoded bash program' }
     $tail=@($guestCommand | Select-Object -Skip 2)
-    $guestCommand=@('bash','-lc',$program)+$tail
+    if($guestCommand[0] -eq '--agentworks-python-base64') {$guestCommand=@('python3','-c',$program)+$tail}
+    else {$guestCommand=@('bash','-lc',$program)+$tail}
   }
   Invoke-Guest $meta $guestCommand
 }
