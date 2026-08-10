@@ -19,9 +19,22 @@ if (!/^https?:\/\//.test(control.serverUrl || '') || !control.serverSlug) {
 }
 
 function compose(args) {
-  return execFileSync('docker', [
-    'compose', '--project-directory', root, '--env-file', envFile,
-    '-f', path.join(root, 'compose.yaml'), ...args,
+  let executable = 'docker';
+  let prefix = [];
+  let composeRoot = root;
+  let composeEnvFile = envFile;
+  if (process.platform === 'win32') {
+    const wslPath = target => execFileSync('wsl.exe', [
+      '-d', 'Ubuntu', '-u', 'root', '--', 'wslpath', '-a', target,
+    ], { encoding: 'utf8' }).trim();
+    executable = 'wsl.exe';
+    prefix = ['-d', 'Ubuntu', '-u', 'root', '--', 'docker'];
+    composeRoot = wslPath(root);
+    composeEnvFile = wslPath(envFile);
+  }
+  return execFileSync(executable, [...prefix,
+    'compose', '--project-directory', composeRoot, '--env-file', composeEnvFile,
+    '-f', `${composeRoot}/compose.yaml`, ...args,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
