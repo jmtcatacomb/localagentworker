@@ -21,6 +21,10 @@ const masterAgentToken = required('MASTER_AGENT_TOKEN');
 const portPoolStart = Number(process.env.PORT_POOL_START || 20000);
 const portPoolEnd = Number(process.env.PORT_POOL_END || 29999);
 const pool = new pg.Pool({ connectionString: required('DATABASE_URL') });
+// An idle PostgreSQL socket can be reset while Docker/WSL networking settles.
+// Without an error listener node-postgres emits an unhandled EventEmitter
+// error and kills the Master even after it has begun listening.
+pool.on('error', error => console.error(`postgres idle connection error: ${error.message}`));
 const app = express();
 const server = http.createServer(app);
 const workerWss = new WebSocketServer({ noServer: true });

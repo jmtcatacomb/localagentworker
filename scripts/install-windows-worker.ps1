@@ -35,8 +35,9 @@ $taskEnv = @{
 # ScheduledTask has no portable Environment block. A private launcher writes
 # the variables just before Node starts; it is deliberately state-owned.
 $launcher = Join-Path $StateDir 'generated\start-windows-worker.cmd'
+$workerLog = Join-Path $StateDir 'logs\worker.log'
 New-Item -ItemType Directory -Force (Split-Path $launcher) | Out-Null
-($taskEnv.GetEnumerator() | Sort-Object Name | ForEach-Object { "set `"$($_.Name)=$($_.Value)`"" }) + @("`"$node`" `"$workerScript`"") | Set-Content -Encoding ascii $launcher
+($taskEnv.GetEnumerator() | Sort-Object Name | ForEach-Object { "set `"$($_.Name)=$($_.Value)`"" }) + @("`"$node`" `"$workerScript`" >> `"$workerLog`" 2>&1") | Set-Content -Encoding ascii $launcher
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/d /c `"$launcher`"" -WorkingDirectory $Root
 # A host worker must survive SSH/RDP logout.  SYSTEM has the Hyper-V privilege
 # and access to the private state directory, so no interactive desktop session

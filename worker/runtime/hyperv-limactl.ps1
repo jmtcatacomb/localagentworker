@@ -41,7 +41,10 @@ package_update: false
   $fs.Root.AddTree($directory,$false)
   $image = $fs.CreateResultImage()
   if (-not ('Agentworks.ImapiStreamWriter' -as [type])) {
-    Add-Type -CompilerOptions '/unsafe' -TypeDefinition @'
+    $compiler = New-Object CodeDom.Compiler.CompilerParameters
+    $compiler.CompilerOptions = '/unsafe'
+    $compiler.GenerateInMemory = $true
+    Add-Type -CompilerParameters $compiler -TypeDefinition @'
 using System;
 using System.IO;
 using System.Runtime.InteropServices.ComTypes;
