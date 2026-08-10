@@ -32,6 +32,11 @@ const agentworksRoot = path.resolve(process.env.AGENTWORKS_ROOT || path.resolve(
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(agentworksRoot, '.agentworks'));
 const masterAgentHome = path.join(stateDir, 'master-agent-home');
 const claudeOauthTokenFile = path.resolve(process.env.CLAUDE_OAUTH_TOKEN_FILE || path.join(stateDir, 'secrets', 'claude-oauth-token'));
+const guestHome = process.env.AGENTWORKS_GUEST_HOME || '/home/ubuntu';
+// `limactl shell` is intentionally non-interactive.  Do not depend on a
+// guest's profile to place ~/.local/bin on PATH (notably true for Hyper-V's
+// SSH adapter); the MCP registration itself still uses this same executable.
+const guestBridgeCommand = path.posix.join(guestHome, '.local/bin', 'agentworks-bridge');
 const masterAgentUrl = process.env.MASTER_AGENT_URL || masterUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/ws\/worker.*$/, '');
 const masterAgentToken = required('MASTER_AGENT_TOKEN');
 const autoCells = (process.env.AUTO_CELLS || '').split(',').map(value => value.trim()).filter(Boolean);
@@ -356,11 +361,11 @@ async function sessionRuntimeInstructions(cell, payload) {
     if (response.ok) directory = await response.json();
   } else {
     try {
-      const result = await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'list-known'], { timeoutMs: 15_000, quiet: true });
+      const result = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'list-known'], { timeoutMs: 15_000, quiet: true });
       directory = JSON.parse(result.stdout.trim() || '{}');
     } catch {
       await installBridge(cell);
-      const result = await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'list-known'], { timeoutMs: 15_000, quiet: true });
+      const result = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'list-known'], { timeoutMs: 15_000, quiet: true });
       directory = JSON.parse(result.stdout.trim() || '{}');
     }
   }
@@ -406,12 +411,12 @@ async function wakeSession(cell, payload) {
   const envelope = payload.envelope || {};
   const messageId = String(envelope.messageId || '');
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw new Error('Invalid inter-session message id');
-  const cached = await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'delivery-get', messageId], { quiet: true });
+  const cached = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'delivery-get', messageId], { quiet: true });
   const cachedValue = JSON.parse(cached.stdout.trim() || '{}');
   if (cachedValue.found && cachedValue.result) return { ...cachedValue.result, deduplicated: true };
   const prompt = interSessionPrompt(payload);
   const result = await runSessionTurn(cell, { ...payload, prompt });
-  await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'delivery-record', messageId], {
+  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'delivery-record', messageId], {
     input: JSON.stringify(result), quiet: true,
   });
   return result;
@@ -1297,7 +1302,7 @@ async function syncBridgeDirectory(cell, directory) {
   await startCell(cell);
   await installBridge(cell);
   const input = JSON.stringify({ ...directory, capturedAt: new Date().toISOString() });
-  await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'sync-directory'], { input, quiet: true });
+  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'sync-directory'], { input, quiet: true });
   return { synced: true, count: directory.sessions?.length || 0 };
 }
 
@@ -1314,7 +1319,7 @@ async function storeBridgeReceipt(cell, payload) {
   await installBridge(cell);
   const messageId = String(payload.messageId || '');
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw new Error('Invalid bridge receipt message id');
-  await run(limactl, ['shell', '-y', cell.runtime_name, 'agentworks-bridge', 'receipt', messageId], {
+  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'receipt', messageId], {
     input: JSON.stringify(payload), quiet: true,
   });
   return { stored: true, messageId };
@@ -1326,7 +1331,7 @@ async function scanBridgeOutboxes() {
   for (const instance of instances.filter(item => normalizeState(item.status) === 'running')) {
     let payloads;
     try {
-      const { stdout } = await run(limactl, ['shell', '-y', instance.name, 'agentworks-bridge', 'outbox-list'], { timeoutMs: 15_000, quiet: true });
+      const { stdout } = await run(limactl, ['shell', '-y', instance.name, guestBridgeCommand, 'outbox-list'], { timeoutMs: 15_000, quiet: true });
       payloads = JSON.parse(stdout.trim() || '[]');
     } catch { continue; }
     for (const payload of Array.isArray(payloads) ? payloads : []) {
@@ -1344,7 +1349,7 @@ async function acknowledgeBridgeOutbox(message) {
   const outboxId = String(message.outboxId || '');
   if (!autoCells.includes(runtimeName) || !/^[0-9a-f-]{36}$/i.test(outboxId)) return;
   try {
-    await run(limactl, ['shell', '-y', runtimeName, 'agentworks-bridge', 'outbox-ack', outboxId], { timeoutMs: 15_000, quiet: true });
+    await run(limactl, ['shell', '-y', runtimeName, guestBridgeCommand, 'outbox-ack', outboxId], { timeoutMs: 15_000, quiet: true });
   } finally { outboxInFlight.delete(`${runtimeName}:${outboxId}`); }
 }
 
