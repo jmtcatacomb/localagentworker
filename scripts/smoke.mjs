@@ -1,3 +1,7 @@
+import { ensureFetch } from './lib/node-fetch-compat.mjs';
+
+ensureFetch(import.meta.url);
+
 const base = `http://127.0.0.1:${process.env.MASTER_PORT}`;
 
 async function login(email, password) {

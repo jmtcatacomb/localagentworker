@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensureFetch } from '../lib/node-fetch-compat.mjs';
+
+ensureFetch(import.meta.url);
 
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || '.agentworks');
 const bindings = JSON.parse(fs.readFileSync(path.join(stateDir, 'agentslack', 'bindings.json'), 'utf8')).bindings;

@@ -119,6 +119,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const preflight = fs.readFileSync('scripts/e2e/host-agent-preflight.mjs', 'utf8');
   const foragents = fs.readFileSync('scripts/e2e/with-foragents-ssm.sh', 'utf8');
   const awsPlan = fs.readFileSync('scripts/e2e/aws-plan.mjs', 'utf8');
+  const fetchCompat = fs.readFileSync('scripts/lib/node-fetch-compat.mjs', 'utf8');
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
   const ubuntuLaunch = fs.readFileSync('scripts/e2e/aws-ubuntu-launch.mjs', 'utf8');
   const windowsLaunch = fs.readFileSync('scripts/e2e/aws-windows-launch.mjs', 'utf8');
@@ -141,6 +142,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(worker, /hostRuntime !== 'incus'/);
   assert.match(preflight, /\/dev\/kvm/);
   assert.match(awsPlan, /read-only-aws-plan/);
+  assert.match(fetchCompat, /--experimental-fetch/);
   assert.match(awsPlan, /nestedVirtualization/);
   assert.match(releaseGate, /read-only-release-gate/);
   assert.match(releaseGate, /immutable commit/);

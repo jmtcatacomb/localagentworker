@@ -7,6 +7,9 @@
  * local AWS profile and never mutates AWS.
  */
 import { execFileSync } from 'node:child_process';
+import { ensureFetch } from '../lib/node-fetch-compat.mjs';
+
+ensureFetch(import.meta.url);
 
 const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1';
 const instanceType = process.env.AGENTWORKS_E2E_INSTANCE_TYPE || 'c7i.2xlarge';

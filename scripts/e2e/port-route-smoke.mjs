@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensureFetch } from '../lib/node-fetch-compat.mjs';
+
+ensureFetch(import.meta.url);
 
 const action = process.argv[2];
 if (!['open', 'close'].includes(action)) throw new Error('usage: port-route-smoke.mjs open|close');
