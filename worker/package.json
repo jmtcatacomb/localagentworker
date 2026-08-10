@@ -7,7 +7,9 @@
     "postinstall": "node scripts/fix-node-pty.mjs"
   },
   "dependencies": {
-    "node-pty": "^1.1.0",
     "ws": "^8.18.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   }
 }

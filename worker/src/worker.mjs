@@ -6,9 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import pty from 'node-pty';
 import WebSocket from 'ws';
 import { AgentSlackDeliveryAdapter } from '../integrations/agentslack.mjs';
+
+// node-pty has prebuild gaps on the Node 16 compatibility lane used by Amazon
+// Linux 2. A missing optional PTY must not prevent VM orchestration; terminals
+// transparently fall back to ordinary stdin/stdout streams on that host.
+let pty;
+try { pty = (await import('node-pty')).default; }
+catch { console.warn('node-pty unavailable; terminal resize is disabled on this Host Worker'); }
 
 const workerId = process.env.WORKER_ID || 'mac-local';
 const masterUrl = required('MASTER_WS_URL');
@@ -1296,15 +1302,23 @@ async function acknowledgeBridgeOutbox(message) {
 function openTerminal(message) {
   const name = message.cell.runtime_name;
   const env = { ...process.env, LIMA_HOME: limaHome, TERM: 'xterm-256color' };
-  const terminal = pty.spawn(limactl, ['shell', name, 'bash', '-l'], {
-    name: 'xterm-256color', cols: 100, rows: 30, cwd: process.cwd(), env,
-  });
+  const terminal = pty
+    ? pty.spawn(limactl, ['shell', name, 'bash', '-l'], { name: 'xterm-256color', cols: 100, rows: 30, cwd: process.cwd(), env })
+    : streamTerminal(limactl, ['shell', name, 'bash', '-l'], env, message.streamId);
   terminals.set(message.streamId, terminal);
-  terminal.onData(data => send({ type: 'terminal.output', streamId: message.streamId, data }));
-  terminal.onExit(({ exitCode }) => {
-    terminals.delete(message.streamId);
-    send({ type: 'terminal.exit', streamId: message.streamId, code: exitCode });
-  });
+  if (pty) {
+    terminal.onData(data => send({ type: 'terminal.output', streamId: message.streamId, data }));
+    terminal.onExit(({ exitCode }) => { terminals.delete(message.streamId); send({ type: 'terminal.exit', streamId: message.streamId, code: exitCode }); });
+  }
+}
+
+function streamTerminal(command, args, env, streamId) {
+  const child = spawn(command, args, { cwd: process.cwd(), env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const write = data => child.stdin.write(data);
+  const output = chunk => send({ type: 'terminal.output', streamId, data: chunk.toString() });
+  child.stdout.on('data', output); child.stderr.on('data', output);
+  child.on('close', code => { terminals.delete(streamId); send({ type: 'terminal.exit', streamId, code: code || 0 }); });
+  return { write, resize: () => {}, kill: () => child.kill('SIGTERM') };
 }
 
 function closeTerminal(streamId) {
