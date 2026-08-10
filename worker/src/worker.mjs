@@ -42,6 +42,7 @@ const sessionLocks = new Map();
 const activeRuns = new Map();
 const outboxInFlight = new Set();
 const bridgeInstallLocks = new Map();
+const cellLocks = new Map();
 const portServers = new Map();
 const codexAppServerTimeoutMs = Number(process.env.CODEX_APP_SERVER_TIMEOUT_MS || 15_000);
 let masterBridgeInstall;
@@ -1113,6 +1114,15 @@ async function assertRunning(cell) {
 }
 
 async function ensureCell(cell) {
+  const name = String(cell.runtime_name || '');
+  const prior = cellLocks.get(name);
+  if (prior) return prior;
+  const task = ensureCellUnlocked(cell).finally(() => cellLocks.delete(name));
+  cellLocks.set(name, task);
+  return task;
+}
+
+async function ensureCellUnlocked(cell) {
   const name = cell.runtime_name;
   const exists = await cellExists(name);
   if (!exists) {
