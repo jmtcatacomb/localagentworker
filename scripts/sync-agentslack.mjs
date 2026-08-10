@@ -24,9 +24,11 @@ function compose(args) {
   let composeRoot = root;
   let composeEnvFile = envFile;
   if (process.platform === 'win32') {
-    const wslPath = target => execFileSync('wsl.exe', [
-      '-d', 'Ubuntu', '-u', 'root', '--', 'wslpath', '-a', target,
-    ], { encoding: 'utf8' }).trim();
+    const wslPath = target => {
+      const match = path.resolve(target).match(/^([A-Za-z]):\\(.*)$/);
+      if (!match) throw new Error(`AgentSlack WSL Docker requires a local Windows drive path: ${target}`);
+      return `/mnt/${match[1].toLowerCase()}/${match[2].replaceAll('\\', '/')}`;
+    };
     executable = 'wsl.exe';
     prefix = ['-d', 'Ubuntu', '-u', 'root', '--', 'docker'];
     composeRoot = wslPath(root);
