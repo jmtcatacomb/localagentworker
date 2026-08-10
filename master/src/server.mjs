@@ -792,7 +792,21 @@ async function openMasterTerminal(browser, user) {
 
 async function initialize() {
   const schema = await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf8');
-  await pool.query(schema);
+  // Docker Compose's health gate prevents normal PostgreSQL races, but a
+  // fresh Windows WSL2 Docker network can briefly return EAI_AGAIN while its
+  // embedded DNS endpoint attaches. Retrying keeps Master available instead
+  // of entering a restart loop during that bounded network convergence.
+  let lastError;
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    try { await pool.query(schema); lastError = null; break; }
+    catch (error) {
+      lastError = error;
+      if (!['EAI_AGAIN', 'ECONNREFUSED', 'ENOTFOUND'].includes(error.code) || attempt === 30) throw error;
+      console.warn(`database unavailable during startup (${error.code}); retry ${attempt}/30`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  if (lastError) throw lastError;
   await seed();
   await pool.query("UPDATE session_messages SET status='queued',lease_owner=NULL,lease_expires_at=NULL WHERE status='waking' AND (lease_expires_at IS NULL OR lease_expires_at<now())");
   server.listen(port, '0.0.0.0', () => console.log(`Agentworks master listening on :${port}`));

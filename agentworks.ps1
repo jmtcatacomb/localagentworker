@@ -4,8 +4,17 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $StateDir = if($env:AGENTWORKS_STATE_DIR){$env:AGENTWORKS_STATE_DIR}else{Join-Path $Root '.agentworks'}
 $EnvFile = Join-Path $StateDir 'config\master.env'
 function Assert-Admin { $p=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent()); if(!$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run Agentworks PowerShell as Administrator.'} }
-function Bootstrap { New-Item -ItemType Directory -Force (Join-Path $StateDir 'config'),(Join-Path $StateDir 'postgres'),(Join-Path $StateDir 'logs'),(Join-Path $StateDir 'generated'),(Join-Path $StateDir 'master-agent-home'),(Join-Path $StateDir 'runtime') | Out-Null; & node.exe (Join-Path $Root 'scripts\bootstrap.mjs') }
-function Quote-Sh([string]$Value) { return "'" + $Value.Replace("'", "'\"'\"'") + "'" }
+function Bootstrap {
+  New-Item -ItemType Directory -Force (Join-Path $StateDir 'config'),(Join-Path $StateDir 'postgres'),(Join-Path $StateDir 'logs'),(Join-Path $StateDir 'generated'),(Join-Path $StateDir 'master-agent-home'),(Join-Path $StateDir 'runtime') | Out-Null
+  $previous=$env:AGENTWORKS_STATE_DIR
+  try { $env:AGENTWORKS_STATE_DIR=$StateDir; & node.exe (Join-Path $Root 'scripts\bootstrap.mjs'); if($LASTEXITCODE -ne 0){throw "Bootstrap failed ($LASTEXITCODE)."} }
+  finally { $env:AGENTWORKS_STATE_DIR=$previous }
+}
+function Quote-Sh([string]$Value) {
+  $apostrophe=([char]39).ToString()
+  $quote=([char]34).ToString()
+  return $apostrophe + $Value.Replace($apostrophe, $apostrophe + $quote + $apostrophe + $quote + $apostrophe) + $apostrophe
+}
 function ConvertTo-WslPath([string]$Path) {
   $full=[IO.Path]::GetFullPath($Path)
   if ($full -notmatch '^([A-Za-z]):\\(.*)$') { throw "WSL Docker currently requires Agentworks on a local drive, got: $full" }
@@ -17,7 +26,16 @@ function Get-WslDistro {
   if ($distros -notcontains 'Ubuntu') { throw 'WSL Ubuntu is not installed. Run .\agentworks.ps1 prepare-host, reboot if requested, then rerun this command.' }
   return 'Ubuntu'
 }
-function Invoke-WslRoot([string]$Script) { $distro=Get-WslDistro; & wsl.exe -d $distro -u root -- bash -lc $Script; if ($LASTEXITCODE -ne 0) { throw "WSL command failed ($LASTEXITCODE)." } }
+function Invoke-WslRoot([string]$Script) {
+  $distro=Get-WslDistro
+  # Passing a compound shell string through wsl.exe is lossy on some Server
+  # images (notably redirections such as 2>&1).  A compact base64 payload
+  # keeps the WSL command boundary deterministic without a temporary script.
+  $payload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+  $runner="echo $payload | base64 -d | bash"
+  & wsl.exe -d $distro -u root -- bash -lc $runner
+  if ($LASTEXITCODE -ne 0) { throw "WSL command failed ($LASTEXITCODE)." }
+}
 function Setup-Master {
   Assert-Admin
   $distro=Get-WslDistro
@@ -29,7 +47,7 @@ function Compose([string[]]$Arguments) {
   $wslRoot=ConvertTo-WslPath $Root
   $wslEnv=ConvertTo-WslPath $EnvFile
   $quotedArgs=($Arguments | ForEach-Object { Quote-Sh $_ }) -join ' '
-  $script="cd $(Quote-Sh $wslRoot) && docker compose --project-directory $(Quote-Sh $wslRoot) --env-file $(Quote-Sh $wslEnv) -f $(Quote-Sh ($wslRoot + '/compose.yaml')) $quotedArgs"
+  $script="cd $(Quote-Sh $wslRoot) && docker compose --project-directory $(Quote-Sh $wslRoot) --env-file $(Quote-Sh $wslEnv) -f $(Quote-Sh ($wslRoot + '/compose.yaml')) -f $(Quote-Sh ($wslRoot + '/compose.windows.yaml')) $quotedArgs"
   Invoke-WslRoot $script
 }
 function Prepare-Host {
