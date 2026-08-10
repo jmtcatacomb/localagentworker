@@ -28,7 +28,10 @@ try {
     { IpProtocol: 'tcp', FromPort: 3389, ToPort: 3389, IpRanges: [{ CidrIp: sourceCidr, Description: 'temporary RDP recovery' }] },
     { IpProtocol: 'tcp', FromPort: 20000, ToPort: 20020, IpRanges: [{ CidrIp: sourceCidr, Description: 'temporary tenant HTTP E2E probe' }] },
   ])]);
-  const key = aws(['ec2', 'create-key-pair', '--key-name', runId, '--key-type', 'ed25519', '--key-format', 'pem', '--tag-specifications', tags('key-pair')]);
+  // EC2 Windows AMIs reject ED25519 key pairs even though Linux hosts accept
+  // them. RSA remains compatible with both EC2 password encryption and the
+  // OpenSSH bootstrap public key recovered through IMDSv2.
+  const key = aws(['ec2', 'create-key-pair', '--key-name', runId, '--key-type', 'rsa', '--key-format', 'pem', '--tag-specifications', tags('key-pair')]);
   const runDir = path.join(stateDir, 'e2e', runId); fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const keyPath = path.join(runDir, 'host.pem'); fs.writeFileSync(keyPath, key.KeyMaterial, { mode: 0o600 }); fs.chmodSync(keyPath, 0o600);
   // The only bootstrap access is the EC2 key pair's public key from IMDSv2.
