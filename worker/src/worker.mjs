@@ -1446,7 +1446,7 @@ async function scanBridgeOutboxes() {
 async function acknowledgeBridgeOutbox(message) {
   const runtimeName = String(message.runtimeName || '');
   const outboxId = String(message.outboxId || '');
-  if (!autoCells.includes(runtimeName) || !/^[0-9a-f-]{36}$/i.test(outboxId)) return;
+  if (!/^[0-9a-f-]{36}$/i.test(outboxId) || !(await cellExists(runtimeName))) return;
   try {
     await run(limactl, guestBridgeArgs(runtimeName, 'outbox-ack', outboxId), { timeoutMs: 15_000, quiet: true });
   } finally { outboxInFlight.delete(`${runtimeName}:${outboxId}`); }
@@ -1486,6 +1486,17 @@ async function sendHeartbeat() {
 
 async function cellStatuses() {
   const instances = await listInstances();
+  await Promise.all(instances.map(async instance => {
+    const runtimeName = String(instance.name || '');
+    if (!runtimeName || agentsState.has(runtimeName) || normalizeState(instance.status) !== 'running') return;
+    try {
+      await run(limactl, ['shell', '-y', runtimeName, 'bash', '-lc', 'test -f "$HOME/.agentworks/agents-ready"'], {
+        timeoutMs: 15_000,
+        quiet: true,
+      });
+      agentsState.set(runtimeName, 'ready');
+    } catch { agentsState.set(runtimeName, 'pending'); }
+  }));
   const knownNames = new Set([...autoCells, ...instances.map(instance => instance.name)]);
   return [...knownNames].map(runtimeName => {
     if (transient.has(runtimeName)) return transient.get(runtimeName);
