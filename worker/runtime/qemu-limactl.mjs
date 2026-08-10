@@ -79,6 +79,11 @@ async function create(name) {
   const memoryGiB = Math.max(1, Number(option('--memory') || 4));
   const diskGiB = Math.max(8, Number(option('--disk') || 40));
   const dir = instanceDir(name);
+  // A host interruption can happen after the directory/key is created but
+  // before meta.json is committed. Such a directory is not a registered VM;
+  // discard only this incomplete, adapter-owned state so automatic provision
+  // can retry without an interactive ssh-keygen overwrite prompt.
+  await fs.rm(dir, { recursive: true, force: true });
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const key = path.join(dir, 'id_ed25519');
   await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key]);
