@@ -26,7 +26,7 @@ const ovmfVars = process.env.AGENTWORKS_QEMU_OVMF_VARS || '/usr/share/edk2/ovmf/
 function fail(message) { process.stderr.write(`agentworks QEMU adapter: ${message}\n`); process.exit(2); }
 function option(name) { const index = argv.indexOf(name); return index >= 0 ? argv[index + 1] : null; }
 function validName(name) { return /^[a-z][a-z0-9-]{0,62}$/.test(name || ''); }
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`; }
+function shellQuote(value) { return `'${String(value).replaceAll("'", "'\"'\"'")}'`; }
 function instanceDir(name) { return path.join(root, 'instances', name); }
 function metaPath(name) { return path.join(instanceDir(name), 'meta.json'); }
 function run(command, args, options = {}) {
