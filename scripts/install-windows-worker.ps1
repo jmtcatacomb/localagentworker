@@ -48,6 +48,14 @@ $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/d /c `"$launche
 # is required for the deterministic bridge and tenant lifecycle.
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description $description
+Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+# Re-registering a task does not terminate a child node.exe that Task Scheduler
+# has already detached. Stop only the exact Worker script process so repeated
+# setup-worker/upgrade remains single-instance without touching unrelated Node.
+$workerPattern=[regex]::Escape($workerScript)
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -match $workerPattern } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'

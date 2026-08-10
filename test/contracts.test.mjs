@@ -183,6 +183,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(hypervAdapter, /vmId=\$vm\.Id\.ToString\(\)/);
   assert.match(hypervAdapter, /function Resolve-VM/);
   assert.doesNotMatch(hypervAdapter, /Start-VM -Name \(Vm-Name/);
+  assert.match(hypervAdapter, /Replace\("`r`n","`n"\)/);
+  assert.match(windowsWorkerInstaller, /Get-CimInstance Win32_Process/);
+  assert.match(windowsWorkerInstaller, /\[regex\]::Escape\(\$workerScript\)/);
   assert.match(windowsInstaller, /Install-WindowsFeature -Name Hyper-V/);
   assert.match(windowsWorkerInstaller, /HOST_RUNTIME = 'hyperv'/);
 });

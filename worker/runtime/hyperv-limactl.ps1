@@ -177,6 +177,10 @@ if [ -n "$__aw_b64" ]; then
   set -- "${__aw_args[@]:1}"
 fi
 '@.Replace('__AGENTWORKS_ARGS__',$argumentPayload) + "`n" + [string]$command[2]
+    # PowerShell here-strings use CRLF even when WriteAllText uses UTF-8.
+    # A transferred bash program must use Unix newlines or `fi\r` is parsed as
+    # a different token by the Ubuntu guest.
+    $stdinProgram=$stdinProgram.Replace("`r`n","`n")
     $localScript=Join-Path (Instance-Dir $meta.name) ("command-"+[guid]::NewGuid().ToString('N')+".sh")
     $remoteScript="/tmp/$(Split-Path -Leaf $localScript)"
     [IO.File]::WriteAllText($localScript,$stdinProgram,(New-Object Text.UTF8Encoding($false)))
