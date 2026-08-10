@@ -20,11 +20,14 @@ function option(name) {
 function invoke(args, transform = null) {
   const child = spawn(cli, args, { stdio: ['inherit', 'pipe', 'inherit'], env: process.env });
   let stdout = '';
-  child.stdout.on('data', chunk => { stdout += chunk; });
+  child.stdout.on('data', chunk => {
+    if (transform) stdout += chunk;
+    else process.stdout.write(chunk);
+  });
   child.on('error', error => fail(`${cli} unavailable: ${error.message}`));
   child.on('close', code => {
     if (code !== 0) process.exit(code || 1);
-    try { process.stdout.write(transform ? transform(stdout) : stdout); }
+    try { if (transform) process.stdout.write(transform(stdout)); }
     catch (error) { fail(error.message); }
   });
 }
