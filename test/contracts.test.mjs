@@ -139,6 +139,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(amazonLinuxBootstrap, /docker compose version/);
   assert.match(amazonLinuxBootstrap, /amazon-linux-extras install -y docker/);
   assert.match(amazonLinuxBootstrap, /docker-compose-linux-/);
+  assert.match(amazonLinuxBootstrap, /docker buildx version/);
+  assert.match(amazonLinuxBootstrap, /docker\/buildx\/releases/);
   assert.match(amazonLinuxBootstrap, /nodejs\.org\/dist/);
   assert.match(amazonLinuxBootstrap, /Node 16\.20\.2/);
   assert.match(amazonLinuxBootstrap, /--experimental-fetch/);

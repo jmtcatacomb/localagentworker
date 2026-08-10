@@ -59,6 +59,23 @@ if ! docker compose version >/dev/null 2>&1; then
   trap - EXIT
 fi
 
+# Recent Compose releases invoke Buildx for `compose up --build`; the AL2
+# Docker package deliberately stays small and does not include this plugin.
+# Keep it alongside the pinned Compose plugin so first install is reproducible.
+if ! docker buildx version >/dev/null 2>&1; then
+  buildx_version=${AGENTWORKS_DOCKER_BUILDX_VERSION:-v0.17.1}
+  case "$(uname -m)" in x86_64) buildx_arch=amd64 ;; aarch64|arm64) buildx_arch=arm64 ;; *) echo "Unsupported Buildx architecture: $(uname -m)" >&2; exit 1 ;; esac
+  buildx_tmp=$(mktemp)
+  trap 'rm -f "$buildx_tmp"' EXIT
+  curl --fail --location --proto '=https' --tlsv1.2 \
+    "https://github.com/docker/buildx/releases/download/${buildx_version}/buildx-${buildx_version}.linux-${buildx_arch}" \
+    -o "$buildx_tmp"
+  sudo install -D -m 0755 "$buildx_tmp" /usr/local/lib/docker/cli-plugins/docker-buildx
+  docker buildx version >/dev/null || { echo "Docker Buildx plugin installation failed." >&2; exit 1; }
+  rm -f "$buildx_tmp"
+  trap - EXIT
+fi
+
 node_major=0
 if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0); fi
 if [ "$node_major" -lt 16 ]; then
