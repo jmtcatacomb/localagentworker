@@ -1481,7 +1481,7 @@ function hypervSafeArgs(args) {
   return [
     ...args.slice(0, bashIndex),
     '--agentworks-bash-base64',
-    Buffer.from(args[bashIndex + 2], 'utf8').toString('base64'),
+    Buffer.from(args[bashIndex + 2], 'utf8').toString('base64url'),
     ...args.slice(bashIndex + 3),
   ];
 }

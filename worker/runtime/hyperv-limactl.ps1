@@ -194,7 +194,11 @@ if($command -eq 'edit'){ $cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cp
 if($command -eq 'shell'){
   $guestCommand=[string[]]@($rest | Select-Object -Skip 1)
   if($guestCommand.Count -ge 2 -and $guestCommand[0] -eq '--agentworks-bash-base64') {
-    try { $program=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($guestCommand[1])) }
+    try {
+      $encoded=$guestCommand[1].Replace('-','+').Replace('_','/')
+      $encoded=$encoded + ('=' * ((4 - ($encoded.Length % 4)) % 4))
+      $program=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
+    }
     catch { Fail 'shell received an invalid encoded bash program' }
     $tail=@($guestCommand | Select-Object -Skip 2)
     $guestCommand=@('bash','-lc',$program)+$tail
