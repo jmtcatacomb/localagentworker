@@ -126,7 +126,9 @@ function Setup-Worker {
   if (!$role -or !$role.Installed) { Install-WindowsFeature -Name Hyper-V -IncludeManagementTools | Out-Null; throw 'Hyper-V was installed. Reboot Windows, then rerun .\agentworks.ps1 setup-worker.' }
   Setup-Master
   Ensure-HypervBaseImage
-  & npm.cmd install --prefix (Join-Path $Root 'worker') --omit=dev
+  $workerDir=Join-Path $Root 'worker'
+  & npm.cmd install --prefix $workerDir --omit=dev
+  if($LASTEXITCODE -ne 0){throw "Unable to install Worker dependencies (npm exit $LASTEXITCODE)."}
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\install-windows-worker.ps1') -Root $Root -StateDir $StateDir
 }
 switch($Command) {
