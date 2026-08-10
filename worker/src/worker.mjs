@@ -243,11 +243,16 @@ items.sort(key=lambda x:(x['type']!='directory',x['name'].lower()))
 print(json.dumps({'path':p,'parent':None if p=='/' else os.path.dirname(p),'items':items[:1000]}))
 `;
   const target = String(requestedPath || (isMasterCell(cell) ? agentworksRoot : '~/workspace'));
-  const result = isMasterCell(cell)
-    ? await run('python3', ['-c', script, target], { timeoutMs: 30000, quiet: true, env: masterEnv(), cwd: agentworksRoot })
-    : await run(limactl, ['shell', '-y', cell.runtime_name, 'python3', '-c', script, target], { timeoutMs: 30000, quiet: true });
-  const { stdout } = result;
-  return JSON.parse(stdout.trim());
+  try {
+    const result = isMasterCell(cell)
+      ? await run('python3', ['-c', script, target], { timeoutMs: 30000, quiet: true, env: masterEnv(), cwd: agentworksRoot })
+      : await run(limactl, ['shell', '-y', cell.runtime_name, 'python3', '-c', script, target], { timeoutMs: 30000, quiet: true });
+    return JSON.parse(result.stdout.trim());
+  } catch (error) {
+    if (isMasterCell(cell)) throw error;
+    const fallbackPath=target.startsWith('~/') ? `/home/ubuntu/${target.slice(2)}` : target;
+    return { path: fallbackPath, parent: fallbackPath === '/' ? null : path.posix.dirname(fallbackPath), items: [], probeWarning: 'Guest file listing pending' };
+  }
 }
 
 async function runSessionTurn(cell, payload, emit = () => {}) {
