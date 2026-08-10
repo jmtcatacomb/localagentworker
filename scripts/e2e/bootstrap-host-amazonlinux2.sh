@@ -62,7 +62,7 @@ fi
 # Recent Compose releases invoke Buildx for `compose up --build`; the AL2
 # Docker package deliberately stays small and does not include this plugin.
 # Keep it alongside the pinned Compose plugin so first install is reproducible.
-if ! docker buildx version >/dev/null 2>&1; then
+if ! docker buildx version 2>/dev/null | grep -Eq '[[:space:]](0\.(1[7-9]|[2-9][0-9])|[1-9][0-9]*\.)'; then
   buildx_version=${AGENTWORKS_DOCKER_BUILDX_VERSION:-v0.17.1}
   case "$(uname -m)" in x86_64) buildx_arch=amd64 ;; aarch64|arm64) buildx_arch=arm64 ;; *) echo "Unsupported Buildx architecture: $(uname -m)" >&2; exit 1 ;; esac
   buildx_tmp=$(mktemp)
