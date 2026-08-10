@@ -9,6 +9,8 @@ $envFile = Join-Path $StateDir 'config\master.env'
 $values = @{}
 Get-Content $envFile | Where-Object { $_ -match '=' } | ForEach-Object { $i=$_.IndexOf('='); $values[$_.Substring(0,$i)]=$_.Substring($i+1) }
 $port = if ($values.MASTER_PORT) { $values.MASTER_PORT } else { '8080' }
+$wslIp = ((& wsl.exe -d Ubuntu -u root -- hostname -I 2>$null) -split '\s+' | Where-Object { $_ } | Select-Object -First 1)
+if (!$wslIp) { throw 'Unable to resolve the Ubuntu WSL2 address for the Docker Master.' }
 $workerScript = Join-Path $Root 'worker\src\worker.mjs'
 $adapter = Join-Path $Root 'worker\runtime\hyperv-limactl.cmd'
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -18,10 +20,10 @@ $taskEnv = @{
   WORKER_ID = if ($env:WORKER_ID) { $env:WORKER_ID } else { 'windows-local' }
   WORKER_TOKEN = $values.WORKER_TOKEN
   MASTER_AGENT_TOKEN = $values.MASTER_AGENT_TOKEN
-  MASTER_AGENT_URL = "http://127.0.0.1:$port"
+  MASTER_AGENT_URL = "http://${wslIp}:$port"
   AGENTWORKS_ROOT = $Root
   AGENTWORKS_STATE_DIR = $StateDir
-  MASTER_WS_URL = "ws://127.0.0.1:$port/ws/worker"
+  MASTER_WS_URL = "ws://${wslIp}:$port/ws/worker"
   HOST_RUNTIME = 'hyperv'
   LIMACTL_BIN = $adapter
   LIMA_HOME = (Join-Path $StateDir 'runtime')

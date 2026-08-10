@@ -47,7 +47,9 @@ function Compose([string[]]$Arguments) {
   $wslRoot=ConvertTo-WslPath $Root
   $wslEnv=ConvertTo-WslPath $EnvFile
   $quotedArgs=($Arguments | ForEach-Object { Quote-Sh $_ }) -join ' '
-  $script="cd $(Quote-Sh $wslRoot) && docker compose --project-directory $(Quote-Sh $wslRoot) --env-file $(Quote-Sh $wslEnv) -f $(Quote-Sh ($wslRoot + '/compose.yaml')) -f $(Quote-Sh ($wslRoot + '/compose.windows.yaml')) $quotedArgs"
+  # WSL2's native worker reaches the Master through the WSL VM address; make
+  # the published Docker port visible to that host-side bridge only.
+  $script="cd $(Quote-Sh $wslRoot) && MASTER_BIND_HOST=0.0.0.0 docker compose --project-directory $(Quote-Sh $wslRoot) --env-file $(Quote-Sh $wslEnv) -f $(Quote-Sh ($wslRoot + '/compose.yaml')) -f $(Quote-Sh ($wslRoot + '/compose.windows.yaml')) $quotedArgs"
   Invoke-WslRoot $script
 }
 function Prepare-Host {

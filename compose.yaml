@@ -42,4 +42,4 @@ services:
       - ./.agentworks/master-agent-home:/master-agent-home
       - ./:/workspace/agentworks
     ports:
-      - "127.0.0.1:${MASTER_PORT:-8080}:8080"
+      - "${MASTER_BIND_HOST:-127.0.0.1}:${MASTER_PORT:-8080}:8080"
