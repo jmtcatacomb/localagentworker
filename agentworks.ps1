@@ -127,8 +127,13 @@ function Setup-Worker {
   Setup-Master
   Ensure-HypervBaseImage
   $workerDir=Join-Path $Root 'worker'
-  & npm.cmd --prefix $workerDir install --omit=dev
-  if($LASTEXITCODE -ne 0){throw "Unable to install Worker dependencies (npm exit $LASTEXITCODE)."}
+  Push-Location $workerDir
+  try {
+    # npm.cmd on Windows Server does not consistently honor --prefix when it
+    # is invoked by PowerShell. Running in the package directory is explicit.
+    & npm.cmd install --omit=dev
+    if($LASTEXITCODE -ne 0){throw "Unable to install Worker dependencies (npm exit $LASTEXITCODE)."}
+  } finally { Pop-Location }
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\install-windows-worker.ps1') -Root $Root -StateDir $StateDir
 }
 switch($Command) {
