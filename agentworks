@@ -118,6 +118,10 @@ case "${1:-help}" in
     bootstrap_config
     setup_worker
     ;;
+  setup-master-agent)
+    "$ROOT/scripts/install-host-agent-clis.sh"
+    setup_worker
+    ;;
   import-claude-oauth)
     bootstrap_config
     AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/import-claude-oauth.mjs"
@@ -219,6 +223,6 @@ case "${1:-help}" in
     if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:$PORT"; else echo "http://127.0.0.1:$PORT"; fi
     ;;
   *)
-    echo "Usage: ./agentworks {install|setup-worker|import-claude-oauth|sync-agentslack|upgrade|repair|start|stop|restart|status|logs|worker-logs|credentials|doctor|smoke|open}"
+    echo "Usage: ./agentworks {install|setup-worker|setup-master-agent|import-claude-oauth|sync-agentslack|upgrade|repair|start|stop|restart|status|logs|worker-logs|credentials|doctor|smoke|open}"
     ;;
 esac

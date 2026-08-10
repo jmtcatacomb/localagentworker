@@ -197,6 +197,7 @@ test('Claude-only bootstrap uses protected host state rather than Git or service
   const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
   const importer = fs.readFileSync('scripts/import-claude-oauth.mjs', 'utf8');
   const installer = fs.readFileSync('agentworks', 'utf8');
+  const hostCliInstaller = fs.readFileSync('scripts/install-host-agent-clis.sh', 'utf8');
   assert.match(worker, /syncClaudeOauthToCell/);
   assert.match(worker, /syncClaudeOauthToMasterHome/);
   assert.match(worker, /install -m 600/);
@@ -205,6 +206,10 @@ test('Claude-only bootstrap uses protected host state rather than Git or service
   assert.match(worker, /durable all-or-nothing readiness marker/);
   assert.match(importer, /mode: 0o600/);
   assert.match(installer, /import-claude-oauth/);
+  assert.match(installer, /setup-master-agent/);
+  assert.match(hostCliInstaller, /chatgpt\.com\/codex\/install\.sh/);
+  assert.match(hostCliInstaller, /claude\.ai\/install\.sh/);
+  assert.doesNotMatch(hostCliInstaller, /sudo/);
 });
 
 test('host-to-VM ports are centrally allocated, live-revocable, and audited', () => {

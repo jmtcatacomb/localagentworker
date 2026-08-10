@@ -56,3 +56,20 @@ authorizes you to operate Agentworks through its audited control interfaces.
   trusted Worker coordination, and credentialless VM bridge MCP/outboxes.
 
 Read `docs/ARCHITECTURE.md` and `docs/BACKLOG.md` before changing runtime boundaries.
+
+## Host CLI installation
+
+The Master Agent executes on the host Worker boundary, so its native Codex and
+Claude binaries must also exist on the host. This is deliberately separate from
+`./agentworks install`, which only installs deterministic infrastructure. As the
+same non-root account that owns the checkout, run:
+
+```sh
+./agentworks setup-master-agent
+./agentworks import-claude-oauth
+```
+
+The first command installs both vendor CLIs in the user's local binary directory
+and restarts the Worker. The second copies the supplied Claude OAuth credential
+into protected, gitignored Agentworks state. Interactive provider login remains
+available when a portable OAuth credential is not supplied.
