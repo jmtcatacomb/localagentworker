@@ -1502,20 +1502,17 @@ function spawnRuntime(args, options = {}) {
 }
 
 function hypervSafeArgs(args) {
-  // cmd.exe cannot preserve a multi-line bash -lc program when a native
-  // Windows Worker invokes the PowerShell adapter. Keep every structural
-  // argument intact and encode only that program; the adapter decodes it
-  // after it has crossed the cmd/PowerShell boundary.
+  // cmd.exe cannot faithfully preserve the multi-line programs *or* the
+  // following prompt/MCP arguments used by a managed turn.  Keep the runtime
+  // name structural, but carry the entire guest command as one JSON payload.
+  // The PowerShell adapter decodes this only after the cmd boundary.
   if (hostRuntime !== 'hyperv' || args[0] !== 'shell') return args;
-  const bashIndex = args.findIndex((value, index) => index > 1 && value === 'bash' && args[index + 1] === '-lc');
-  const pythonIndex = args.findIndex((value, index) => index > 1 && value === 'python3' && args[index + 1] === '-c');
-  const programIndex = bashIndex >= 0 ? bashIndex : pythonIndex;
-  if (programIndex < 0 || typeof args[programIndex + 2] !== 'string') return args;
+  const runtimeIndex = args[1] === '-y' ? 2 : 1;
+  if (typeof args[runtimeIndex] !== 'string' || args.length <= runtimeIndex + 1) return args;
   return [
-    ...args.slice(0, programIndex),
-    bashIndex >= 0 ? '--agentworks-bash-base64' : '--agentworks-python-base64',
-    Buffer.from(args[programIndex + 2], 'utf8').toString('base64url'),
-    ...args.slice(programIndex + 3),
+    ...args.slice(0, runtimeIndex + 1),
+    '--agentworks-command-json-base64',
+    Buffer.from(JSON.stringify(args.slice(runtimeIndex + 1)), 'utf8').toString('base64url'),
   ];
 }
 

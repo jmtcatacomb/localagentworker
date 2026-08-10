@@ -220,7 +220,17 @@ if($command -eq 'stop'){if((Get-State $meta) -eq 'running'){Stop-VM -Name (Vm-Na
 if($command -eq 'edit'){ $cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cpus=[int]$cpu;Set-VMProcessor -VMName (Vm-Name $name) -Count $meta.cpus};if($mem){$meta.memoryMiB=[int]($mem -replace 'MiB$','');Set-VMMemory -VMName (Vm-Name $name) -DynamicMemoryEnabled $false -StartupBytes ($meta.memoryMiB*1MB)};Write-Meta $name $meta;exit 0 }
 if($command -eq 'shell'){
   $guestCommand=[string[]]@($rest | Select-Object -Skip 1)
-  if($guestCommand.Count -ge 2 -and $guestCommand[0] -in @('--agentworks-bash-base64','--agentworks-python-base64')) {
+  if($guestCommand.Count -eq 2 -and $guestCommand[0] -eq '--agentworks-command-json-base64') {
+    try {
+      $encoded=$guestCommand[1].Replace('-','+').Replace('_','/')
+      $encoded=$encoded + ('=' * ((4 - ($encoded.Length % 4)) % 4))
+      $decoded=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded)) | ConvertFrom-Json
+      $guestCommand=[string[]]@($decoded | ForEach-Object { [string]$_ })
+      if(!$guestCommand.Count){Fail 'shell received an empty encoded command'}
+    }
+    catch { Fail 'shell received an invalid encoded command' }
+  }
+  elseif($guestCommand.Count -ge 2 -and $guestCommand[0] -in @('--agentworks-bash-base64','--agentworks-python-base64')) {
     try {
       $encoded=$guestCommand[1].Replace('-','+').Replace('_','/')
       $encoded=$encoded + ('=' * ((4 - ($encoded.Length % 4)) % 4))
