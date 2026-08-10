@@ -244,6 +244,11 @@ PY
 
 async function listDirectory(cell, requestedPath) {
   await assertRunning(cell);
+  if (isMasterCell(cell) && isWindowsRuntime) {
+    const target = String(requestedPath || '/workspace/agentworks');
+    if (!path.posix.isAbsolute(target)) throw new Error('path must be absolute');
+    return { path: target, parent: target === '/' ? null : path.posix.dirname(target), items: [], probeWarning: 'Master container file probe is delegated' };
+  }
   const script = String.raw`
 import json,os,sys
 p=os.path.abspath(os.path.expanduser(sys.argv[1] if len(sys.argv)>1 and sys.argv[1] else '~/workspace'))
