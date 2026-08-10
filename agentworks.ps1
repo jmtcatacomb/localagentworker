@@ -127,7 +127,7 @@ function Setup-Worker {
   Setup-Master
   Ensure-HypervBaseImage
   $workerDir=Join-Path $Root 'worker'
-  & npm.cmd install --prefix $workerDir --omit=dev
+  & npm.cmd --prefix $workerDir install --omit=dev
   if($LASTEXITCODE -ne 0){throw "Unable to install Worker dependencies (npm exit $LASTEXITCODE)."}
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\install-windows-worker.ps1') -Root $Root -StateDir $StateDir
 }
