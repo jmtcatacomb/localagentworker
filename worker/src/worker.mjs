@@ -179,6 +179,19 @@ async function describeUsage(cell) {
 
 async function describeWorkspace(cell) {
   await assertRunning(cell);
+  // The Windows SYSTEM Worker cannot execute Linux probes directly.  The
+  // Master Claude turn itself is delegated to the authenticated control-plane
+  // endpoint below, so expose its deterministic workspace/model contract
+  // without attempting a host-side python/bash probe.
+  if (isMasterCell(cell) && isWindowsRuntime) return {
+    home: '/workspace/agentworks', defaultPath: '/workspace/agentworks', auth: { codex: false, claude: true },
+    models: { codex: [], claude: [
+      { id: 'sonnet', displayName: 'Claude Sonnet', efforts: ['low', 'medium', 'high'] },
+      { id: 'opus', displayName: 'Claude Opus', efforts: ['low', 'medium', 'high', 'max'] },
+      { id: 'haiku', displayName: 'Claude Haiku', efforts: ['low', 'medium', 'high'] },
+      { id: 'fable', displayName: 'Claude Fable', efforts: ['low', 'medium', 'high'] },
+    ] },
+  };
   const authScript = String.raw`
 set +e
 home="$HOME"
