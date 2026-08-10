@@ -136,6 +136,17 @@ function Quote-Remote([string]$value) {
 }
 function Invoke-Guest($meta,[string[]]$command) {
   $ip=Wait-Guest $meta
+  if($command.Count -ge 3 -and $command[0] -eq 'bash' -and $command[1] -eq '-lc') {
+    # Keep arbitrary bash source out of SSH's remote-shell re-parsing. The
+    # payload is base64 (therefore shell inert) until it is decoded inside the
+    # guest's bash process. Remaining positional values are controlled runtime
+    # identifiers/paths and retain their original argv order.
+    $payload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command[2]))
+    $tail=@($command | Select-Object -Skip 3 | ForEach-Object { Quote-Remote ([string]$_) })
+    $remoteCommand='bash -c "$(echo '+$payload+' | base64 -d)"'+($(if($tail.Count){' '+($tail -join ' ')}else{''}))
+    & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" $remoteCommand
+    exit $LASTEXITCODE
+  }
   # OpenSSH joins every command argument with spaces before giving it to the
   # guest shell. Quote each original argv value first, otherwise `bash -lc`
   # loses its program (and semicolons/newlines become host-shell syntax).
