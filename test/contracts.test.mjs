@@ -140,6 +140,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
   assert.match(worker, /await waitForGuestRuntime\(name\)/);
   assert.match(worker, /hostRuntime !== 'incus'/);
+  assert.match(worker, /directHypervAdapter/);
+  assert.match(worker, /'-File', hypervAdapterScript/);
   assert.match(preflight, /\/dev\/kvm/);
   assert.match(awsPlan, /read-only-aws-plan/);
   assert.match(fetchCompat, /--experimental-fetch/);

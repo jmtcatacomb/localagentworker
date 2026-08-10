@@ -25,6 +25,7 @@ const limaHome = process.env.LIMA_HOME || path.resolve(process.env.AGENTWORKS_ST
 const limactl = process.env.LIMACTL_BIN || (hostRuntime === 'lima'
   ? 'limactl'
   : path.resolve(__dirname, hostRuntime === 'qemu' ? '../runtime/qemu-limactl.mjs' : hostRuntime === 'hyperv' ? '../runtime/hyperv-limactl.cmd' : '../runtime/incus-limactl'));
+const hypervAdapterScript = path.resolve(__dirname, '../runtime/hyperv-limactl.ps1');
 const isWindowsRuntime = process.platform === 'win32' && hostRuntime === 'hyperv';
 const bridgeSource = path.resolve(__dirname, '../bridge/agentworks_bridge.py');
 const adminBridgeSource = path.resolve(__dirname, '../bridge/agentworks_admin_bridge.py');
@@ -1617,11 +1618,16 @@ function run(command, args, {
 } = {}) {
   return new Promise((resolve, reject) => {
     const runtimeArgs = hypervSafeArgs(args);
-    const child = spawn(command, runtimeArgs, {
+    const directHypervAdapter = hostRuntime === 'hyperv' && command === limactl;
+    const executable = directHypervAdapter ? 'powershell.exe' : command;
+    const executableArgs = directHypervAdapter
+      ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', hypervAdapterScript, ...runtimeArgs]
+      : runtimeArgs;
+    const child = spawn(executable, executableArgs, {
       env: env || { ...process.env, LIMA_HOME: limaHome },
       cwd,
       stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-      shell: isWindowsRuntime && command === limactl,
+      shell: false,
     });
     onChild?.(child);
     let stdout = '';
@@ -1650,7 +1656,13 @@ function run(command, args, {
 }
 
 function spawnRuntime(args, options = {}) {
-  return spawn(limactl, hypervSafeArgs(args), { ...options, shell: isWindowsRuntime });
+  const runtimeArgs = hypervSafeArgs(args);
+  if (hostRuntime === 'hyperv') {
+    return spawn('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', hypervAdapterScript, ...runtimeArgs,
+    ], { ...options, shell: false });
+  }
+  return spawn(limactl, runtimeArgs, { ...options, shell: false });
 }
 
 function hypervSafeArgs(args) {
