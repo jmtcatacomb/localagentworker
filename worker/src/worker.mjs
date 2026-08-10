@@ -201,7 +201,14 @@ PY
   for (const line of stdout.trim().split('\n').map(line => line.trim()).filter(Boolean).reverse()) {
     try { description = JSON.parse(line); break; } catch { /* wrapper noise */ }
   }
-  if (!description || typeof description !== 'object') throw new Error('Workspace descriptor did not return JSON.');
+  if (!description || typeof description !== 'object') {
+    // A fresh provider CLI can emit non-JSON diagnostics before its first
+    // interactive login. The tenant home is deterministic for every managed
+    // VM, so keep folder/session access available and report auth as pending.
+    description = isMasterCell(cell)
+      ? { home: agentworksRoot, defaultPath: agentworksRoot, auth: { codex: false, claude: false }, probeWarning: 'CLI auth status pending' }
+      : { home: '/home/ubuntu', defaultPath: '/home/ubuntu/workspace', auth: { codex: false, claude: false }, probeWarning: 'CLI auth status pending' };
+  }
   if (isMasterCell(cell)) description.defaultPath = agentworksRoot;
   description.models = {
     codex: await codexModels(cell).catch(() => []),
