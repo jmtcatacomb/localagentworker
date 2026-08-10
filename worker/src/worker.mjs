@@ -1283,8 +1283,31 @@ async function startCell(cell) {
     progress(name, 'starting', agentsState.get(name) || 'unknown');
     await run(limactl, ['start', '-y', name], { timeoutMs: 10 * 60 * 1000 });
   }
+  await waitForGuestRuntime(name);
   progress(name, 'running', agentsState.get(name) || 'unknown');
   return { runtimeName: name, status: 'running' };
+}
+
+async function waitForGuestRuntime(name) {
+  // LXD/Incus report a VM as RUNNING before lxd-agent/incus-agent is ready to
+  // accept `exec`. Without this barrier, first provisioning and stopped-VM
+  // wake can lose their only guest command and leave the cell pending forever.
+  // Lima and Hyper-V adapters already wait for their SSH transport themselves.
+  if (hostRuntime !== 'incus') return;
+  const timeoutMs = Number(process.env.AGENTWORKS_GUEST_READY_TIMEOUT_MS || 180_000);
+  const deadline = Date.now() + timeoutMs;
+  let lastError = '';
+  while (Date.now() < deadline) {
+    const probe = await run(limactl, ['shell', '-y', name, 'true'], {
+      timeoutMs: 10_000,
+      quiet: true,
+      allowNonZero: true,
+    });
+    if (probe.code === 0) return;
+    lastError = String(probe.stderr || '').trim();
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  throw new Error(`${name} guest runtime did not become ready within ${timeoutMs}ms${lastError ? `: ${lastError.slice(-400)}` : ''}`);
 }
 
 async function stopCell(cell) {
