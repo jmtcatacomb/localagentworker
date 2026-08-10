@@ -55,18 +55,22 @@ package_update: false
 "@
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'user-data') $userData
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'meta-data') "instance-id: $(Split-Path -Leaf $directory)`nlocal-hostname: $(Split-Path -Leaf $directory)`n"
+  # Match the Hyper-V synthetic NIC by its deterministic MAC address rather
+  # than assuming Ubuntu's generated interface name. Network config v2 is
+  # consumed by current cloud-init/netplan images consistently.
   $networkConfig = @"
-version: 1
-config:
-  - type: physical
-    name: eth0
-    mac_address: "$guestMac"
-    subnets:
-      - type: static
-        address: $guestIp
-        netmask: 255.255.0.0
-        gateway: 172.28.0.1
-        dns_nameservers: [1.1.1.1, 8.8.8.8]
+version: 2
+ethernets:
+  eth0:
+    match:
+      macaddress: "$guestMac"
+    set-name: eth0
+    addresses: [$guestIp/16]
+    routes:
+      - to: default
+        via: 172.28.0.1
+    nameservers:
+      addresses: [1.1.1.1, 8.8.8.8]
 "@
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'network-config') $networkConfig
   $fs = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
