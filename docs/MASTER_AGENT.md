@@ -57,6 +57,20 @@ authorizes you to operate Agentworks through its audited control interfaces.
 
 Read `docs/ARCHITECTURE.md` and `docs/BACKLOG.md` before changing runtime boundaries.
 
+## AgentSlack physical infrastructure setup
+
+When the user asks to connect Agentworks to one or more AgentSlack deployments,
+read `docs/AGENTSLACK_SETUP.md` before acting. Do not rely on conversational memory
+for endpoint, control Server, credential source, VPN/WARP or host access. Discover
+those values from the deployment's own runbook or ask the user for the missing
+minimum inputs listed there.
+
+Use only the `admin_agentslack_*` tools for registration, logical Server creation
+and session enrollment. They keep bearer tokens in the Host Worker boundary. Never
+ask the user to paste a bearer token into Master chat. A complete validation requires
+an AgentSlack-visible reply after stopped-VM auto-wake; an internal queue ACK alone
+is not sufficient.
+
 ## Host CLI installation
 
 The Master Agent executes on the host Worker boundary, so its native Codex and

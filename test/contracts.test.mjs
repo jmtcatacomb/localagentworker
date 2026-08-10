@@ -93,6 +93,8 @@ test('Master Agent is a first-class system session with audited admin capabiliti
   assert.match(ui, /data-workspace="cell-master"/);
   assert.match(server, /master\.worker_id='mac-local'/);
   assert.match(server, /master\.kind='master'/);
+  assert.match(worker, /new Set\(\['master-agent'/);
+  assert.match(worker, /runtimeName === 'master-agent'/);
 });
 
 test('superadmin can create a tenant cell without exposing its initial password to audit data', () => {
@@ -202,6 +204,18 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(windowsWorkerInstaller, /HOST_RUNTIME = 'hyperv'/);
 });
 
+test('tenant VM stop is idempotent for recovery and repeated E2E operations', () => {
+  const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
+  assert.match(worker, /limaState\(name\) === 'stopped'/);
+  assert.match(worker, /status: 'stopped', unchanged: true/);
+  assert.match(worker, /cellStartLocks\.get\(name\)/);
+  assert.match(worker, /startCellUnlocked/);
+  assert.match(worker, /cellStopLocks\.get\(name\)/);
+  assert.match(worker, /stopCellUnlocked/);
+  assert.match(worker, /child\?\.kill\('SIGTERM'\)/);
+  assert.match(worker, /agentsState\.get\(runtimeName\) === 'ready'/);
+});
+
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {
   const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
   const importer = fs.readFileSync('scripts/import-claude-oauth.mjs', 'utf8');
@@ -298,5 +312,42 @@ test('AgentSlack wake bindings keep tokens in Worker state and ACK only after ex
   assert.match(smoke, /references\/resolve/);
   assert.match(adapter, /auto_ack=false/);
   assert.match(adapter, /inbox\/ack/);
+  assert.match(adapter, /peer\?\.topic\?\.channelId \|\| entry\?\.signal\?\.channelId/);
+  assert.match(adapter, /\/api\/v1\/topics\/\$\{topicId\}\/messages/);
+  assert.match(adapter, /agentslack_reply_context_missing/);
+  assert.match(adapter, /message\.externalDeliveryId - 1/);
+  assert.match(server, /resendPendingAgentSlackAcknowledgements/);
+  assert.match(adapter, /durableWakeReply: true/);
+  assert.match(server, /answer: String\(link\.result\?\.answer/);
   assert.doesNotMatch(server, /AGENTSLACK_(?:TOKEN|BEARER|SECRET)/);
+});
+
+test('Master Agent can manage multiple AgentSlack infrastructures and exact-session enrollment without receiving tokens', () => {
+  const server = fs.readFileSync('master/src/server.mjs', 'utf8');
+  const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
+  const bridge = fs.readFileSync('worker/bridge/agentworks_admin_bridge.py', 'utf8');
+  const manager = fs.readFileSync('worker/integrations/agentslack-manager.mjs', 'utf8');
+  const runbook = fs.readFileSync('docs/AGENTSLACK_SETUP.md', 'utf8');
+  const handoff = fs.readFileSync('docs/AGENTSLACK_DEPLOYMENT_HANDOFF.example.md', 'utf8');
+  assert.match(server, /\/api\/admin\/agentslack\/infrastructures/);
+  assert.match(server, /\/api\/admin\/agentslack\/servers/);
+  assert.match(server, /\/api\/admin\/agentslack\/enrollments/);
+  assert.match(server, /allTenantSessions/);
+  assert.doesNotMatch(server, /c\.created_at LIMIT 1/);
+  assert.match(worker, /agentslack\.session\.enroll/);
+  assert.match(worker, /agentSlackAdapter\?\.reload/);
+  assert.match(bridge, /admin_agentslack_register_infrastructure/);
+  assert.match(bridge, /admin_agentslack_enroll_sessions/);
+  assert.match(manager, /infrastructures\.json/);
+  assert.match(manager, /credentialFile/);
+  assert.match(manager, /mode: 0o600/);
+  assert.match(runbook, /admin_agentslack_register_infrastructure/);
+  assert.match(runbook, /allRepliesVisibleInAgentSlack=true/);
+  assert.match(runbook, /unknown_registration_tags/);
+  assert.match(runbook, /infrastructureId>--<serverSlug>--<stable-session-uuid/);
+  assert.match(runbook, /token, credential file 내용/);
+  assert.match(handoff, /stable `infrastructureId`/);
+  assert.match(handoff, /may stop tenant VMs for E2E/);
+  assert.doesNotMatch(handoff, /"controlToken"\s*:\s*"[^<]/);
+  assert.doesNotMatch(server, /controlToken|adminToken|authorization: `Bearer/);
 });

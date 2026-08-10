@@ -63,6 +63,11 @@ TOOLS = [
     {"name": "admin_vm_exec", "description": "Execute an audited non-interactive shell command inside one tenant VM through the trusted host Worker. The VM is started automatically. Avoid embedding credentials in commands. Output is capped and commands time out after at most 600 seconds.", "inputSchema": obj({"cell_id": {"type": "string"}, "command": {"type": "string", "minLength": 1, "maxLength": 20000}, "cwd": {"type": "string", "description": "Optional absolute path inside the VM."}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600, "default": 120}, "as_root": {"type": "boolean", "default": False}}, ("cell_id", "command"))},
     {"name": "admin_vm_diagnostics", "description": "Start a tenant VM if necessary and collect identity, kernel, uptime, CPU, memory, disk, Docker, and Agentworks bridge diagnostics without changing tenant data.", "inputSchema": obj({"cell_id": {"type": "string"}}, ("cell_id",))},
     {"name": "admin_vm_repair_bridge", "description": "Start a tenant VM and deterministically reinstall/re-register its credentialless Agentworks bridge for Codex and Claude.", "inputSchema": obj({"cell_id": {"type": "string"}}, ("cell_id",))},
+    {"name": "admin_agentslack_list_infrastructures", "description": "List AgentSlack physical deployments already registered in the trusted Host Worker. Credentials are always redacted.", "inputSchema": obj({"worker_id": {"type": "string"}})},
+    {"name": "admin_agentslack_register_infrastructure", "description": "Register an AgentSlack physical deployment from a private credential JSON file that already exists on the Host. The file requires serverUrl, serverSlug/controlServerSlug, and an admin token; secrets never enter this MCP call.", "inputSchema": obj({"infrastructure_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{2,120}$"}, "credential_file": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "worker_id": {"type": "string"}}, ("infrastructure_id", "credential_file"))},
+    {"name": "admin_agentslack_list_servers", "description": "List logical Servers on one registered AgentSlack physical deployment and show which bootstrap credentials are managed locally.", "inputSchema": obj({"infrastructure_id": {"type": "string"}, "worker_id": {"type": "string"}}, ("infrastructure_id",))},
+    {"name": "admin_agentslack_create_server", "description": "Create a logical AgentSlack Server through its registered control-plane admin and retain the returned one-time bootstrap credential only in protected Host Worker state.", "inputSchema": obj({"infrastructure_id": {"type": "string"}, "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"}, "name": {"type": "string"}, "description": {"type": "string"}, "icon_text": {"type": "string"}, "admin_handle": {"type": "string"}, "worker_id": {"type": "string"}}, ("infrastructure_id", "slug"))},
+    {"name": "admin_agentslack_enroll_sessions", "description": "Enroll exact Agentworks sessions in a selected physical AgentSlack deployment and logical Server. Use all_tenant_sessions to enroll every active VM session. Each identity receives durable auto-wake delivery immediately without restarting the Worker.", "inputSchema": obj({"infrastructure_id": {"type": "string"}, "server_slug": {"type": "string"}, "session_uuids": {"type": "array", "items": {"type": "string"}, "maxItems": 100}, "all_tenant_sessions": {"type": "boolean", "default": False}}, ("infrastructure_id", "server_slug"))},
     {"name": "admin_update_session", "description": "Change a session alias/model/reasoning setting for its next turn.", "inputSchema": obj({"session_uuid": {"type": "string"}, "alias": {"type": "string"}, "model": {"type": "string"}, "effort": {"type": "string"}}, ("session_uuid", "alias", "model"))},
 ]
 
@@ -102,6 +107,18 @@ def call(name, args):
         return request("POST", f"/api/admin/cells/{urllib.parse.quote(args['cell_id'])}/diagnostics", {})
     if name == "admin_vm_repair_bridge":
         return request("POST", f"/api/admin/cells/{urllib.parse.quote(args['cell_id'])}/repair-bridge", {})
+    if name == "admin_agentslack_list_infrastructures":
+        query = "" if not args.get("worker_id") else "?workerId=" + urllib.parse.quote(args["worker_id"])
+        return request("GET", "/api/admin/agentslack/infrastructures" + query)
+    if name == "admin_agentslack_register_infrastructure":
+        return request("POST", "/api/admin/agentslack/infrastructures", {"infrastructureId": args["infrastructure_id"], "credentialFile": args["credential_file"], "name": args.get("name"), "workerId": args.get("worker_id")})
+    if name == "admin_agentslack_list_servers":
+        query = urllib.parse.urlencode({key: value for key, value in {"infrastructureId": args["infrastructure_id"], "workerId": args.get("worker_id")}.items() if value})
+        return request("GET", "/api/admin/agentslack/servers?" + query)
+    if name == "admin_agentslack_create_server":
+        return request("POST", "/api/admin/agentslack/servers", {"infrastructureId": args["infrastructure_id"], "slug": args["slug"], "name": args.get("name"), "description": args.get("description"), "iconText": args.get("icon_text"), "adminHandle": args.get("admin_handle"), "workerId": args.get("worker_id")})
+    if name == "admin_agentslack_enroll_sessions":
+        return request("POST", "/api/admin/agentslack/enrollments", {"infrastructureId": args["infrastructure_id"], "serverSlug": args["server_slug"], "sessionUuids": args.get("session_uuids", []), "allTenantSessions": args.get("all_tenant_sessions", False)})
     if name == "admin_update_session":
         return request("PATCH", f"/api/sessions/{urllib.parse.quote(args['session_uuid'])}", {"alias": args["alias"], "model": args["model"], "effort": args.get("effort")})
     raise ValueError(f"unknown tool: {name}")

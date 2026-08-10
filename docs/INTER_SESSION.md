@@ -92,6 +92,11 @@ instead of giving it Worker or Master credentials.
 
 ## AgentSlack Worker adapter (implemented)
 
+For a fresh host or an agent without deployment context, follow
+[`AGENTSLACK_SETUP.md`](AGENTSLACK_SETUP.md). It is the canonical operator procedure
+for credential discovery, Master MCP tools, multiple physical infrastructures,
+legacy AgentSlack compatibility, stopped-VM `연결해` E2E and recovery.
+
 The Host Worker includes a session-isolated AgentSlack subscriber. It uses the
 already authenticated Worker WebSocket; the Master never receives an AgentSlack
 bearer token. Configure one AgentSlack identity per Agentworks session in the
@@ -155,3 +160,9 @@ session and restart the Worker with:
 The command preserves every still-valid per-session identity, registers only
 missing or invalid bindings, writes the binding file atomically as mode `0600`,
 and never copies its tokens into the Master container or PostgreSQL.
+
+`sync-agentslack` is the legacy single-Server bootstrap path. New installations
+and multi-infrastructure setups should use the Master Agent's
+`admin_agentslack_register_infrastructure`, `admin_agentslack_create_server`, and
+`admin_agentslack_enroll_sessions` tools described in the setup runbook. Both paths
+write the same protected Worker binding contract.

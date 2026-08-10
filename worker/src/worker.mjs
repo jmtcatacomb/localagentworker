@@ -8,6 +8,13 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { AgentSlackDeliveryAdapter } from '../integrations/agentslack.mjs';
+import {
+  createAgentSlackServer,
+  enrollAgentSlackSession,
+  importAgentSlackInfrastructure,
+  listAgentSlackInfrastructures,
+  listAgentSlackServers,
+} from '../integrations/agentslack-manager.mjs';
 
 // node-pty has prebuild gaps on the Node 16 compatibility lane used by Amazon
 // Linux 2. A missing optional PTY must not prevent VM orchestration; terminals
@@ -56,6 +63,8 @@ const activeRuns = new Map();
 const outboxInFlight = new Set();
 const bridgeInstallLocks = new Map();
 const cellLocks = new Map();
+const cellStartLocks = new Map();
+const cellStopLocks = new Map();
 const portServers = new Map();
 const codexAppServerTimeoutMs = Number(process.env.CODEX_APP_SERVER_TIMEOUT_MS || 15_000);
 let masterBridgeInstall;
@@ -176,6 +185,15 @@ async function executeAction(action, cell, payload, emit = () => {}) {
   if (action === 'vm.exec') return executeVmCommand(cell, payload);
   if (action === 'vm.diagnostics') return collectVmDiagnostics(cell);
   if (action === 'bridge.repair') return repairVmBridge(cell);
+  if (action === 'agentslack.infrastructure.import') return importAgentSlackInfrastructure(stateDir, payload);
+  if (action === 'agentslack.infrastructure.list') return listAgentSlackInfrastructures(stateDir);
+  if (action === 'agentslack.server.list') return listAgentSlackServers(stateDir, payload.infrastructureId);
+  if (action === 'agentslack.server.create') return createAgentSlackServer(stateDir, payload.infrastructureId, payload);
+  if (action === 'agentslack.session.enroll') {
+    const result = await enrollAgentSlackSession(stateDir, payload);
+    await agentSlackAdapter?.reload();
+    return result;
+  }
   throw new Error(`Unsupported action: ${action}`);
 }
 
@@ -446,7 +464,7 @@ async function sessionRuntimeInstructions(cell, payload) {
     `The list/send/reply/fanout tools require source; always pass your canonical address exactly as: ${payload.address}`,
     'Messages are durable and may be delivered after the target VM/session recovers. Cross-tenant sends still require a Master channel/grant.',
     isMasterCell(cell)
-      ? 'You are the superadmin Master Agent. You follow the same session identity, messaging, goal, streaming, stop, and steering rules as every other agent. Use only typed agentworks-admin MCP tools for cell lifecycle, resource, port, session, and tenant VM administration; these calls are audited. Use admin_vm_diagnostics for read-only inspection, admin_vm_exec for non-interactive forced control, and admin_vm_repair_bridge for deterministic bridge recovery. The existing web terminal provides interactive VM access. Changing VM resources restarts that VM. Binding 0.0.0.0 exposes a host port externally, so prefer 127.0.0.1 unless explicitly requested.'
+      ? 'You are the superadmin Master Agent. You follow the same session identity, messaging, goal, streaming, stop, and steering rules as every other agent. Use only typed agentworks-admin MCP tools for cell lifecycle, resource, port, session, tenant VM, and AgentSlack administration; these calls are audited. Use admin_vm_diagnostics for read-only inspection, admin_vm_exec for non-interactive forced control, and admin_vm_repair_bridge for deterministic bridge recovery. AgentSlack physical deployments are registered from a host-private credential file with admin_agentslack_register_infrastructure; then list/create logical Servers and enroll exact sessions with the admin_agentslack_* tools. Never request or expose AgentSlack bearer tokens in chat. The existing web terminal provides interactive VM access. Changing VM resources restarts that VM. Binding 0.0.0.0 exposes a host port externally, so prefer 127.0.0.1 unless explicitly requested.'
       : 'You are a tenant agent. You cannot use superadmin administration tools.',
     payload.goal?.objective
       ? `Your durable Agentworks goal is active: ${payload.goal.objective}${payload.goal.tokenBudget ? ` (token budget ${payload.goal.tokenBudget})` : ''}`
@@ -1279,6 +1297,15 @@ async function ensureCellUnlocked(cell) {
 async function startCell(cell) {
   const name = cell.runtime_name;
   if (!(await cellExists(name))) return ensureCell(cell);
+  const prior = cellStartLocks.get(name);
+  if (prior) return prior;
+  const task = startCellUnlocked(cell).finally(() => cellStartLocks.delete(name));
+  cellStartLocks.set(name, task);
+  return task;
+}
+
+async function startCellUnlocked(cell) {
+  const name = cell.runtime_name;
   const state = await limaState(name);
   if (state !== 'running') {
     progress(name, 'starting', agentsState.get(name) || 'unknown');
@@ -1313,9 +1340,39 @@ async function waitForGuestRuntime(name) {
 
 async function stopCell(cell) {
   const name = cell.runtime_name;
+  const prior = cellStopLocks.get(name);
+  if (prior) return prior;
+  const task = stopCellUnlocked(cell).finally(() => cellStopLocks.delete(name));
+  cellStopLocks.set(name, task);
+  return task;
+}
+
+async function stopCellUnlocked(cell) {
+  const name = cell.runtime_name;
   if (!(await cellExists(name))) return { runtimeName: name, status: 'missing' };
+  if (await limaState(name) === 'stopped') {
+    progress(name, 'stopped', agentsState.get(name) || 'unknown');
+    return { runtimeName: name, status: 'stopped', unchanged: true };
+  }
   progress(name, 'stopping', agentsState.get(name) || 'unknown');
-  await run(limactl, ['stop', '-y', name], { timeoutMs: 5 * 60 * 1000 });
+  let child;
+  let settled = false;
+  let operationError;
+  const operation = run(limactl, ['stop', '-y', name], {
+    timeoutMs: 5 * 60 * 1000, onChild: value => { child = value; },
+  }).catch(error => { operationError = error; }).finally(() => { settled = true; });
+  const deadline = Date.now() + 90_000;
+  while (!settled && Date.now() < deadline && await limaState(name) !== 'stopped') {
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+  if (!settled && await limaState(name) === 'stopped') {
+    child?.kill('SIGTERM');
+    await operation;
+  } else {
+    await operation;
+    if (operationError && await limaState(name) !== 'stopped') throw operationError;
+  }
+  if (await limaState(name) !== 'stopped') throw new Error(`${name} did not stop within 90 seconds`);
   progress(name, 'stopped', agentsState.get(name) || 'unknown');
   return { runtimeName: name, status: 'stopped' };
 }
@@ -1531,7 +1588,7 @@ async function cellStatuses() {
   const instances = await listInstances();
   await Promise.all(instances.map(async instance => {
     const runtimeName = String(instance.name || '');
-    if (!runtimeName || agentsState.has(runtimeName) || normalizeState(instance.status) !== 'running') return;
+    if (!runtimeName || agentsState.get(runtimeName) === 'ready' || normalizeState(instance.status) !== 'running') return;
     try {
       await run(limactl, ['shell', '-y', runtimeName, 'bash', '-lc', 'test -f "$HOME/.agentworks/agents-ready"'], {
         timeoutMs: 15_000,
@@ -1540,8 +1597,15 @@ async function cellStatuses() {
       agentsState.set(runtimeName, 'ready');
     } catch { agentsState.set(runtimeName, 'pending'); }
   }));
-  const knownNames = new Set([...autoCells, ...instances.map(instance => instance.name)]);
+  const knownNames = new Set(['master-agent', ...autoCells, ...instances.map(instance => instance.name)]);
   return [...knownNames].map(runtimeName => {
+    // The Master Agent is a host process controlled by this Worker, not a Lima
+    // instance. Its cell lifecycle follows the Worker connection; a failed
+    // conversational turn must not leave the control-plane cell permanently
+    // marked as a missing/error VM.
+    if (runtimeName === 'master-agent') return {
+      runtimeName, status: 'running', agentsStatus: 'ready', error: null,
+    };
     if (transient.has(runtimeName)) return transient.get(runtimeName);
     const instance = instances.find(item => item.name === runtimeName);
     return {
@@ -1595,6 +1659,7 @@ function capabilities() {
     dynamicPortRelay: true,
     resourceControl: true,
     vmControl: { exec: true, diagnostics: true, bridgeRepair: true, maxTimeoutSeconds: 600 },
+    agentSlack: { multipleInfrastructures: true, logicalServers: true, exactSessionEnrollment: true, durableWake: true },
     vmBridge: { command: 'agentworks-bridge', mcp: true, durableOutbox: true },
   };
 }

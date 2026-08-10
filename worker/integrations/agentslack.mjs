@@ -130,6 +130,7 @@ export class AgentSlackDeliveryAdapter {
       const inbox = await this.request(binding, `/api/v1/inbox?cursor=${cursor}&auto_ack=false&limit=1`);
       const delivery = (inbox.deliveries || []).find(item => item.id === signal.deliveryId);
       if (!delivery?.message) throw new Error(`agentslack_claimed_delivery_missing:${signal.deliveryId}`);
+      this.active.get(binding.id).delivery = delivery;
       console.error(`AgentSlack ${binding.id}: loaded delivery ${signal.deliveryId}`);
       const content = formatDelivery(binding, signal, delivery).slice(0, MAX_CONTENT);
       const submitted = this.submit({ requestId, bindingId: binding.id, targetSessionUuid: binding.targetSessionUuid,
@@ -176,6 +177,37 @@ export class AgentSlackDeliveryAdapter {
   async acknowledge(message) {
     const binding = this.bindings.get(message.bindingId);
     if (!binding || !Number.isInteger(message.externalDeliveryId)) return;
+    const entry = this.active.get(message.bindingId);
+    let peer = entry?.delivery?.message;
+    // The Master can legitimately deliver the completion after a Worker
+    // reconnect/restart. Rehydrate the exact claimed delivery by its durable
+    // cursor instead of depending on the in-memory active map.
+    if (!peer) {
+      const cursor = Math.max(0, message.externalDeliveryId - 1);
+      const inbox = await this.request(binding, `/api/v1/inbox?cursor=${cursor}&auto_ack=false&limit=1`);
+      peer = (inbox.deliveries || []).find(item => item.id === message.externalDeliveryId)?.message;
+    }
+    const answer = String(message.answer || '').trim().slice(0, MAX_CONTENT);
+    // Current AgentSlack inbox payloads expose channel identity on the topic
+    // (and on the wake signal), while older deployments also copied it onto
+    // the message. Resolve every supported shape so a successful Agentworks
+    // turn cannot be ACKed without first publishing its visible reply.
+    const channelId = peer?.channelId || peer?.topic?.channelId || entry?.signal?.channelId;
+    const topicId = peer?.topicId || entry?.signal?.topicId;
+    if (answer && topicId) {
+      await this.request(binding, `/api/v1/topics/${topicId}/messages`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...(channelId ? { channelId } : {}), topicId, kind: 'chat',
+          title: 'Agentworks session reply', bodyMd: answer, replyToId: peer.id || null,
+          mentions: peer.sender?.handle ? [peer.sender.handle] : [],
+          metadata: { agentworksMessageId: message.agentworksMessageId, durableWakeReply: true },
+          idempotencyKey: `agentworks-reply:${message.agentworksMessageId}`,
+        }),
+      });
+    } else if (answer) {
+      throw new Error(`agentslack_reply_context_missing:${message.bindingId}:${message.externalDeliveryId}`);
+    }
     await this.request(binding, '/api/v1/inbox/ack', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deliveryIds: [message.externalDeliveryId] }),
     });

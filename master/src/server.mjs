@@ -323,6 +323,92 @@ app.get('/api/admin/ports', requireUser, requireSuperadmin, async (_req, res) =>
   res.json({ routes: await listPortRoutes() });
 });
 
+app.get('/api/admin/agentslack/infrastructures', requireUser, requireSuperadmin, async (req, res) => {
+  try {
+    const control = await agentSlackControl(req.query.workerId);
+    res.json({ workerId: control.cell.worker_id, ...(await sendCommand(control.worker, 'agentslack.infrastructure.list', control.cell, {}, 60_000)) });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+});
+
+app.post('/api/admin/agentslack/infrastructures', requireUser, requireSuperadmin, async (req, res) => {
+  const infrastructureId = String(req.body?.infrastructureId || '').trim();
+  const credentialFile = String(req.body?.credentialFile || '').trim();
+  if (!/^[A-Za-z0-9._-]{2,120}$/.test(infrastructureId) || !credentialFile || credentialFile.length > 4000) {
+    return res.status(400).json({ error: 'infrastructureId와 호스트의 private credentialFile 경로가 필요합니다.' });
+  }
+  try {
+    const control = await agentSlackControl(req.body?.workerId);
+    const result = await sendCommand(control.worker, 'agentslack.infrastructure.import', control.cell, {
+      infrastructureId, name: String(req.body?.name || infrastructureId).slice(0, 120), credentialFile,
+    }, 60_000);
+    await audit(req.user.sub, 'agentslack.infrastructure.import', 'worker', control.cell.worker_id, { infrastructureId });
+    res.json({ ok: true, workerId: control.cell.worker_id, infrastructure: result });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+});
+
+app.get('/api/admin/agentslack/servers', requireUser, requireSuperadmin, async (req, res) => {
+  const infrastructureId = String(req.query.infrastructureId || '').trim();
+  if (!infrastructureId) return res.status(400).json({ error: 'infrastructureId가 필요합니다.' });
+  try {
+    const control = await agentSlackControl(req.query.workerId);
+    res.json({ workerId: control.cell.worker_id, ...(await sendCommand(control.worker, 'agentslack.server.list', control.cell, { infrastructureId }, 60_000)) });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+});
+
+app.post('/api/admin/agentslack/servers', requireUser, requireSuperadmin, async (req, res) => {
+  const infrastructureId = String(req.body?.infrastructureId || '').trim();
+  const slug = String(req.body?.slug || '').trim().toLowerCase();
+  if (!infrastructureId || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) return res.status(400).json({ error: 'infrastructureId와 올바른 logical Server slug가 필요합니다.' });
+  try {
+    const control = await agentSlackControl(req.body?.workerId);
+    const result = await sendCommand(control.worker, 'agentslack.server.create', control.cell, {
+      infrastructureId, slug, name: req.body?.name, description: req.body?.description,
+      iconText: req.body?.iconText, adminHandle: req.body?.adminHandle,
+    }, 60_000);
+    await audit(req.user.sub, 'agentslack.server.create', 'worker', control.cell.worker_id, { infrastructureId, slug, created: result.created });
+    res.status(result.created ? 201 : 200).json({ ok: true, workerId: control.cell.worker_id, ...result });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+});
+
+app.post('/api/admin/agentslack/enrollments', requireUser, requireSuperadmin, async (req, res) => {
+  const infrastructureId = String(req.body?.infrastructureId || '').trim();
+  const serverSlug = String(req.body?.serverSlug || '').trim().toLowerCase();
+  const requested = Array.isArray(req.body?.sessionUuids) ? [...new Set(req.body.sessionUuids.map(String))] : [];
+  const allTenantSessions = Boolean(req.body?.allTenantSessions);
+  if (!infrastructureId || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(serverSlug) || (!allTenantSessions && requested.length === 0) || requested.length > 100) {
+    return res.status(400).json({ error: 'infrastructureId, serverSlug, 그리고 sessionUuids 또는 allTenantSessions=true가 필요합니다.' });
+  }
+  const params = [];
+  let where = "s.archived_at IS NULL";
+  if (allTenantSessions) where += " AND c.kind='tenant'";
+  else { params.push(requested); where += ' AND s.session_uuid = ANY($1::uuid[])'; }
+  const sessions = (await pool.query(
+    `SELECT s.session_uuid,s.alias,s.harness,s.model,s.cwd,c.id AS cell_id,c.runtime_name,c.worker_id,c.kind,t.slug AS tenant_slug
+     FROM agent_sessions s JOIN cells c ON c.id=s.cell_id JOIN tenants t ON t.id=s.tenant_id
+     WHERE ${where} ORDER BY t.slug,s.created_at`, params,
+  )).rows;
+  if (!sessions.length) return res.status(404).json({ error: '가입할 활성 세션을 찾지 못했습니다.' });
+  if (!allTenantSessions && sessions.length !== requested.length) return res.status(404).json({ error: '일부 session UUID가 존재하지 않거나 archive 상태입니다.' });
+  const results = [];
+  for (const session of sessions) {
+    const worker = onlineWorker(session);
+    if (!worker) { results.push({ sessionUuid: session.session_uuid, ok: false, error: `Worker ${session.worker_id} offline` }); continue; }
+    try {
+      const result = await sendCommand(worker, 'agentslack.session.enroll', session, {
+        infrastructureId, serverSlug,
+        session: {
+          sessionUuid: session.session_uuid, alias: session.alias, harness: session.harness, model: session.model,
+          cwd: session.cwd, cellId: session.cell_id, runtimeName: session.runtime_name, tenantSlug: session.tenant_slug,
+        },
+      }, 90_000);
+      results.push({ sessionUuid: session.session_uuid, ok: true, ...result });
+    } catch (error) { results.push({ sessionUuid: session.session_uuid, ok: false, error: error.message }); }
+  }
+  const ok = results.every(result => result.ok);
+  await audit(req.user.sub, 'agentslack.sessions.enroll', 'agentslack_server', `${infrastructureId}:${serverSlug}`, { allTenantSessions, requested: sessions.length, succeeded: results.filter(result => result.ok).length });
+  res.status(ok ? 200 : 207).json({ ok, infrastructureId, serverSlug, results });
+});
+
 app.post('/api/admin/ports', requireUser, requireSuperadmin, async (req, res) => {
   const cell = await authorizedCell(req.user, String(req.body?.cellId || ''));
   if (!cell || cell.kind !== 'tenant') return res.status(404).json({ error: 'Tenant VM cell을 찾을 수 없습니다.' });
@@ -685,6 +771,7 @@ workerWss.on('connection', ws => {
           [workerId],
         );
         ws.send(JSON.stringify({ type: 'registered', workerId }));
+        void resendPendingAgentSlackAcknowledgements(workerId, ws);
         void syncBridgeDirectories(workerId);
         void restorePortRoutes(workerId);
         return;
@@ -1052,6 +1139,23 @@ function sendCommand(worker, action, cell, payload = {}, timeoutMs = 15 * 60 * 1
 function onlineWorker(cell) {
   const worker = workers.get(cell.worker_id);
   return worker?.readyState === 1 ? worker : null;
+}
+
+async function agentSlackControl(requestedWorkerId) {
+  const workerId = String(requestedWorkerId || '').trim();
+  const values = [];
+  let clause = '';
+  if (workerId) { values.push(workerId); clause = 'AND c.worker_id=$1'; }
+  const cell = (await pool.query(
+    `SELECT c.*,t.slug AS tenant_slug,t.display_name AS tenant_name
+     FROM cells c JOIN tenants t ON t.id=c.tenant_id
+     WHERE c.worker_id IS NOT NULL ${clause}
+     ORDER BY CASE WHEN c.kind='master' THEN 0 ELSE 1 END,c.updated_at,c.id LIMIT 1`, values,
+  )).rows[0];
+  if (!cell) throw statusError(404, workerId ? `Worker ${workerId}의 control cell을 찾지 못했습니다.` : 'AgentSlack을 관리할 Worker가 없습니다.');
+  const worker = onlineWorker(cell);
+  if (!worker) throw statusError(503, `Worker ${cell.worker_id}가 연결되어 있지 않습니다.`);
+  return { cell, worker };
 }
 
 async function authorizedSession(user, sessionUuid) {
@@ -1496,7 +1600,8 @@ async function acknowledgeSessionMessage(message, target, source, result) {
 
 async function notifyAgentSlackAcknowledged(agentworksMessageId) {
   const link = (await pool.query(
-    `SELECT * FROM agentslack_delivery_links WHERE agentworks_message_id=$1 AND status='accepted'`, [agentworksMessageId],
+    `SELECT l.*,m.result FROM agentslack_delivery_links l JOIN session_messages m ON m.id=l.agentworks_message_id
+     WHERE l.agentworks_message_id=$1 AND l.status='accepted'`, [agentworksMessageId],
   )).rows[0];
   if (!link) return;
   const worker = workers.get(link.worker_id);
@@ -1504,8 +1609,26 @@ async function notifyAgentSlackAcknowledged(agentworksMessageId) {
   worker.send(JSON.stringify({
     type: 'agentslack.delivery.ack', bindingId: link.binding_id,
     externalDeliveryId: Number(link.delivery_id), agentworksMessageId,
+    answer: String(link.result?.answer || '').slice(0, 100_000),
   }));
   await pool.query(`UPDATE agentslack_delivery_links SET status='ack_pending' WHERE agentworks_message_id=$1`, [agentworksMessageId]);
+}
+
+async function resendPendingAgentSlackAcknowledgements(workerId, worker) {
+  if (!worker || worker.readyState !== 1) return;
+  const links = (await pool.query(
+    `SELECT l.*,m.result FROM agentslack_delivery_links l JOIN session_messages m ON m.id=l.agentworks_message_id
+     WHERE l.worker_id=$1 AND l.status IN ('ack_pending','ack_failed') ORDER BY l.accepted_at ASC`,
+    [workerId],
+  )).rows;
+  for (const link of links) {
+    worker.send(JSON.stringify({
+      type: 'agentslack.delivery.ack', bindingId: link.binding_id,
+      externalDeliveryId: Number(link.delivery_id), agentworksMessageId: link.agentworks_message_id,
+      answer: String(link.result?.answer || '').slice(0, 100_000),
+    }));
+    await pool.query(`UPDATE agentslack_delivery_links SET status='ack_pending' WHERE agentworks_message_id=$1`, [link.agentworks_message_id]);
+  }
 }
 
 async function failSessionMessage(message, error, terminal) {

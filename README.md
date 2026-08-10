@@ -138,4 +138,5 @@ hardware. Tenant port approval UI, shared-hostname HTTP routing, and external
 messenger adapters remain backlog items.
 
 See [architecture](docs/ARCHITECTURE.md), [inter-session messaging](docs/INTER_SESSION.md),
+[AgentSlack multi-infrastructure setup](docs/AGENTSLACK_SETUP.md),
 [Master Agent instruction](docs/MASTER_AGENT.md), and [backlog](docs/BACKLOG.md).
