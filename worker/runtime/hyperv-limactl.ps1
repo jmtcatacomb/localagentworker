@@ -126,7 +126,20 @@ function Guest-Ip($meta) {
   if ($ips.Count) { return $ips[0] }; return $meta.guestIp
 }
 function Wait-Guest($meta) { $until=(Get-Date).AddMinutes(8); do { $ip=Guest-Ip $meta; if ($ip -and (Test-NetConnection -ComputerName $ip -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue)) { return $ip }; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $until); Fail "guest $($meta.name) did not become reachable over SSH" }
-function Invoke-Guest($meta,[string[]]$command) { $ip=Wait-Guest $meta; & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" @command; exit $LASTEXITCODE }
+function Quote-Remote([string]$value) {
+  $quote=([char]39).ToString(); $double=([char]34).ToString()
+  return $quote + $value.Replace($quote, $quote+$double+$quote+$double+$quote) + $quote
+}
+function Invoke-Guest($meta,[string[]]$command) {
+  $ip=Wait-Guest $meta
+  # OpenSSH joins every command argument with spaces before giving it to the
+  # guest shell. Quote each original argv value first, otherwise `bash -lc`
+  # loses its program (and semicolons/newlines become host-shell syntax).
+  $quoted=@($command | ForEach-Object { Quote-Remote ([string]$_) })
+  $remoteCommand=$quoted -join ' '
+  & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" $remoteCommand
+  exit $LASTEXITCODE
+}
 
 $command=[string]$argvCopy[0]
 if ($command -eq 'list') { $dir=Join-Path $root 'instances'; $items=@(); if(Test-Path $dir){Get-ChildItem $dir -Directory | ForEach-Object {$m=Read-Meta $_.Name;if($m){$items += [pscustomobject]@{name=$m.name;status=(Get-State $m)}}}}; $items | ConvertTo-Json -Compress; exit 0 }
