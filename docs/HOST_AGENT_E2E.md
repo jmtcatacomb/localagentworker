@@ -1,6 +1,6 @@
 # Host Agent cloud E2E contract
 
-This is the acceptance contract for a **future** Host Agent. It is deliberately
+This is the acceptance contract and executed reference run for the Host Agent. It is deliberately
 not a “run arbitrary commands as root until it works” prompt. The Host Agent must
 first probe the host, create a reviewable plan, obtain the approvals listed below,
 apply typed adapters, and preserve redacted evidence.
@@ -78,22 +78,30 @@ blocks LXD NAT. The generated LXD Worker unit installs an idempotent root-owned
 
 ## Current result
 
-The current Agentworks codebase supports the reference environment only:
+The 2026-08-10 clean-host AWS matrix completed on all three target operating systems:
 
 | Host | Master web console | Host Worker / tenant runtime | Cloud E2E status |
 | --- | --- | --- | --- |
 | macOS | Docker Compose | Lima VZ | reference implementation |
-| Ubuntu 24.04+ | Docker Compose | Incus VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed; live Claude auth turn pending valid setup token |
-| Amazon Linux 2 | Docker Compose | direct QEMU/KVM VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed and host stopped |
-| Windows Server 2025 | WSL2 Docker Compose | Hyper-V VM adapter + SYSTEM scheduled Worker | clean-host E2E completed: 3 tenant VMs, Claude + Master sessions, stopped-VM wake, AgentSlack exact-session ACK, approved external HTTP route and revoke |
+| Ubuntu 24.04+ | Docker Compose | LXD VM adapter + systemd service | completed: 3 tenant VMs, native CLIs/MCP, Claude + Master sessions, stopped-VM wake, AgentSlack collaboration/Wiki, external HTTP route/revoke |
+| Amazon Linux 2 | Docker Compose | direct QEMU/KVM VM adapter + systemd service | completed: 3 tenant VMs, native CLIs/MCP, Claude + Master sessions, stopped-VM wake, AgentSlack collaboration/Wiki, external HTTP route/revoke |
+| Windows Server 2025 | WSL2 Docker Compose | Hyper-V VM adapter + SYSTEM scheduled Worker | completed: 3 tenant VMs, native CLIs/MCP, Claude + Master sessions, stopped-VM wake, AgentSlack collaboration/Wiki, external HTTP route/revoke |
 
-Thus a three-OS E2E must not claim success yet. Ubuntu still requires its live Claude
-turn to be repeated with the current protected OAuth credential. Windows completed its clean-host
-run on 2026-08-10; the instance was stopped rather than terminated after evidence capture. Windows required a WSL2
-Master plus a host-native SYSTEM Worker, and tenant isolation used Hyper-V Generation-2 VMs.
-Hyper-V validation and all OSes require a valid Claude CLI setup token for live agent
-turns. A Linux Docker-only install without a VM runtime and `/dev/kvm` is rejected
-rather than silently degrading tenant VMs into containers.
+Each host proved seeded-tenant isolation, a newly created third tenant, live Claude
+turns in Alpha/Beta/Gamma and the Master Agent, tenant→Master and Master→tenant
+messaging, and stopped-VM wake-on-message. The AgentSlack `agentworktest` logical
+Server test included live DM, an existing active Tag attached to a Topic, a mention
+that woke a stopped target VM, the reverse Topic reply, explicit delivery ACKs,
+Wiki create/update to revision 2, Topic link, and canonical reference resolution.
+The test reused the existing private AgentSlack deployment and did not create a
+duplicate Portainer stack or redundant Tag.
+
+All three approved public-port tests independently returned the nginx welcome page
+through EC2 host port `20000`, then revoked the route and removed the guest container.
+The three EC2 instances were stopped rather than terminated after evidence capture.
+Windows used a WSL2 Master plus a host-native SYSTEM Worker and Hyper-V Generation-2
+tenant VMs. A Linux Docker-only install without a VM runtime and `/dev/kvm` remains
+rejected rather than silently degrading tenant VMs into containers.
 
 ## Required user approvals before any AWS mutation
 
@@ -163,20 +171,14 @@ unrestricted Docker socket or cloud credentials.
 8. **Evidence and cleanup** — retain only redacted JSON/JUnit-style evidence and
    resource IDs. Stop or terminate instances according to the pre-approved policy.
 
-## Current implementation gaps that must close before this matrix runs
+## Follow-up hardening
 
-- Ubuntu clean-host cloud E2E for the Incus Worker, systemd installation, VM
-  lifecycle, bridge injection, resource updates and port relay.
-- Amazon Linux 2 clean-host cloud E2E. The bootstrap chooses the documented portable
-  Snap LXD route (not a container fallback), then must prove `/dev/kvm`, VM launch,
-  guest egress and centrally approved port forwarding on the target AMI.
-- Windows Hyper-V/WSL2 adapter with a documented isolation contract and service
-  installation path.
-- An AgentSlack adapter for Agentworks’ session wake layer. AgentSlack’s Claude
-  Channel can provide native delivery only when its channel options and the exact
-  native session-resume path are verified.
-- An E2E runner that provisions AWS resources with a strict allowlist and cleanup
-  tags. It must be implemented only after the preceding adapters pass local tests.
+There are no open acceptance gaps in the executed three-OS matrix. Future work is
+operational hardening: emit one machine-readable report artifact automatically,
+replace Amazon Linux 2's compatibility Node 16 lane when the OS reaches retirement,
+and add routine CI lanes where nested virtualization is available. These are not
+fallbacks from the VM isolation, durable wake, AgentSlack, or central-port contracts
+proved above.
 
 ## Acceptance evidence
 
@@ -185,3 +187,14 @@ Master/Worker health, tenant and session IDs, AgentSlack object IDs, delivery ID
 for both live and recovery wake, port-route ID and independent HTTP assertion,
 plus cleanup state. Secrets, raw auth headers, OAuth tokens, private keys and
 message bodies are never evidence.
+
+### 2026-08-10 redacted evidence
+
+| OS | EC2 instance | AgentSlack live / stopped wake / reply | Wiki revision | Approved port route | Cleanup |
+| --- | --- | --- | --- | --- | --- |
+| Ubuntu 24.04 | `i-0a35714460f5f7325` | `186af52a-714e-4614-a137-592c5471fb1a` / `9979aa2c-729b-41fa-ae31-c40ed42707c3` / `a4f3ccfe-4dc0-4202-84cd-3854ae964299` | `62935a1d-9203-42e7-819f-a3984a05c118` @ 2 | `e9d4646a-a9c7-4222-b38b-68213b056af7`, externally asserted then revoked | stopped |
+| Amazon Linux 2 | `i-082546e47ef8507e8` | `da856aca-6a48-4be3-ad22-13cdbfde6acf` / `07022067-e9ec-4203-88e5-83c1717d07b3` / `60b92800-e67b-45ca-9051-b5ca82acb395` | `3971c471-27b1-48cf-8173-8d3b1a9c630d` @ 2 | `a6e57b8c-135b-44c8-ba34-fcbdc50e8a0f`, externally asserted then revoked | stopped |
+| Windows Server 2025 | `i-0ca4931bba3a15a10` | `bc40d6d4-ea54-4168-8476-4779dcf81c43` / `09d3f1ff-6c02-4e08-a5b3-3d87d7120806` / `327e8463-8886-4739-b712-5e10abdb2393` | `a6cd9b07-b6db-4f38-ab7a-338c258b7bc2` @ 2 | `4278fc6b-c9db-4915-a36e-167830ca71e5`, externally asserted then revoked | stopped |
+
+The UUIDs above are object identifiers only. OAuth credentials, AgentSlack bearer
+tokens, SSH private keys, AWS credentials, and message bodies are excluded.
