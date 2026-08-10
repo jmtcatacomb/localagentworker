@@ -732,11 +732,13 @@ shift 3
 if [ -f "$HOME/.agentworks/secrets/claude-oauth-token" ]; then
   export CLAUDE_CODE_OAUTH_TOKEN="$(cat "$HOME/.agentworks/secrets/claude-oauth-token")"
 fi
+claude_bin="$HOME/.local/bin/claude"
+if [ ! -x "$claude_bin" ]; then claude_bin="$(command -v claude)"; fi
 set +e
 if command -v setsid >/dev/null 2>&1; then
-  setsid claude "$@" &
+  setsid "$claude_bin" "$@" &
 else
-  python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1],sys.argv[1:])' claude "$@" &
+  python3 -c 'import os,sys; os.setsid(); os.execv(sys.argv[1],sys.argv[1:])' "$claude_bin" "$@" &
 fi
 agent_pid=$!
 printf '%s\n' "$agent_pid" > "$pidfile"
