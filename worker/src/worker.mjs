@@ -1157,10 +1157,21 @@ async function installAgents(cell) {
   const script = String.raw`
 set -euo pipefail
 mkdir -p "$HOME/workspace" "$HOME/.agentworks"
+# Fresh cloud images can still run cloud-init's own package transaction after
+# SSH becomes reachable. Wait before taking apt's lock so first provisioning is
+# deterministic instead of racing the guest boot sequence.
+if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init status --wait || true; fi
 if [ ! -f "$HOME/.agentworks/base-ready" ]; then
-  sudo apt-get update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git build-essential docker.io
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git build-essential docker.io; then break; fi
+    [ "$attempt" = 10 ] && exit 1
+    sleep 3
+  done
+  for attempt in 1 2 3 4 5; do
+    if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose; then break; fi
+    [ "$attempt" = 5 ] && exit 1
+    sleep 3
+  done
   sudo systemctl enable --now docker
   sudo usermod -aG docker "$USER"
   touch "$HOME/.agentworks/base-ready"
