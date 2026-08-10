@@ -160,7 +160,9 @@ async function executeAction(action, cell, payload, emit = () => {}) {
 
 async function describeUsage(cell) {
   await assertRunning(cell);
-  const client = await openCodexAppServer(cell);
+  let client;
+  try { client = await openCodexAppServer(cell); }
+  catch (error) { return { codex: { unavailable: error.message, capturedAt: new Date().toISOString() } }; }
   try {
     const [rateLimits, accountUsage] = await Promise.all([
       client.request('account/rateLimits/read', {}).catch(error => ({ unavailable: error.message })),
