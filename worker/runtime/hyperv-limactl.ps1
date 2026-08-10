@@ -36,6 +36,10 @@ function Guest-StaticIp([string]$name) {
   $bytes=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($name))
   return "172.28.$(2 + ($bytes[0] % 252)).$(2 + ($bytes[1] % 252))"
 }
+function Guest-StaticMac([string]$name) {
+  $bytes=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($name))
+  return ('00:15:5d:{0:x2}:{1:x2}:{2:x2}' -f $bytes[2],$bytes[3],$bytes[4])
+}
 function Write-SeedIso([string]$directory,[string]$publicKey,[string]$guestIp,[string]$guestMac) {
   New-Item -ItemType Directory -Force $directory | Out-Null
   $userData = @"
@@ -168,7 +172,7 @@ if ($command -eq 'create') {
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
   # Create the ISO from a staging directory. The instance root now contains
   # Hyper-V's locked VM configuration files, which must never be added to it.
-  $seedDir=Join-Path $dir 'seed-input'; $guestMac=((Get-VMNetworkAdapter -VMName $vm.Name).MacAddress -replace '(.{2})(?!$)','$1:'); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
+  $seedDir=Join-Path $dir 'seed-input'; $guestMac=Guest-StaticMac $name; Set-VMNetworkAdapter -VMName $vm.Name -StaticMacAddress ($guestMac -replace ':',''); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
   Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $seedDir 'seed.iso') | Out-Null
   Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
