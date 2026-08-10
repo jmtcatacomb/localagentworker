@@ -36,7 +36,7 @@ function Guest-StaticIp([string]$name) {
   $bytes=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($name))
   return "172.28.$(2 + ($bytes[0] % 252)).$(2 + ($bytes[1] % 252))"
 }
-function Write-SeedIso([string]$directory,[string]$publicKey,[string]$guestIp) {
+function Write-SeedIso([string]$directory,[string]$publicKey,[string]$guestIp,[string]$guestMac) {
   $userData = @"
 #cloud-config
 users:
@@ -57,7 +57,8 @@ network:
   ethernets:
     agentworks-nic:
       match:
-        name: "e*"
+        macaddress: "$guestMac"
+      set-name: eth0
       dhcp4: false
       addresses: [$guestIp/16]
       routes:
@@ -161,9 +162,10 @@ if ($command -eq 'create') {
   if($keygen.ExitCode -ne 0){Fail 'ssh-keygen failed'}
   # Hyper-V requires a differencing child to keep the same disk format as its
   # parent. Canonical's Azure image is VHD (not VHDX).
-  $guestIp=Guest-StaticIp $name; Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()) $guestIp; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
+  $guestIp=Guest-StaticIp $name; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=Ensure-AgentworksSwitch
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
+  $guestMac=((Get-VMNetworkAdapter -VMName $vm.Name).MacAddress -replace '(.{2})(?!$)','$1:'); Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
   Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $dir 'seed.iso') | Out-Null
   Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
