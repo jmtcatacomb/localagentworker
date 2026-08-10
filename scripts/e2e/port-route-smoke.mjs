@@ -45,7 +45,7 @@ if (action === 'open') {
   console.log(JSON.stringify({ ok: true, action, routeId: value.route.id, hostPort: 20000 }));
 } else {
   const record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
-  await request(`/api/admin/ports/${record.routeId}`, { method: 'DELETE', expected: [204] });
+  await request(`/api/admin/ports/${record.routeId}`, { method: 'DELETE', expected: [200] });
   await request('/api/admin/cells/cell-win-e2e/exec', {
     method: 'POST', body: { command: 'docker rm -f agentworks-e2e-http >/dev/null 2>&1 || true', timeoutSeconds: 30 },
   });
