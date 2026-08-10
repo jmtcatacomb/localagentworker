@@ -1433,7 +1433,8 @@ function run(command, args, {
   env = null, cwd = undefined, allowNonZero = false, maxCaptureBytes = 10_000_000,
 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const runtimeArgs = hypervSafeArgs(args);
+    const child = spawn(command, runtimeArgs, {
       env: env || { ...process.env, LIMA_HOME: limaHome },
       cwd,
       stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
@@ -1466,7 +1467,23 @@ function run(command, args, {
 }
 
 function spawnRuntime(args, options = {}) {
-  return spawn(limactl, args, { ...options, shell: isWindowsRuntime });
+  return spawn(limactl, hypervSafeArgs(args), { ...options, shell: isWindowsRuntime });
+}
+
+function hypervSafeArgs(args) {
+  // cmd.exe cannot preserve a multi-line bash -lc program when a native
+  // Windows Worker invokes the PowerShell adapter. Keep every structural
+  // argument intact and encode only that program; the adapter decodes it
+  // after it has crossed the cmd/PowerShell boundary.
+  if (hostRuntime !== 'hyperv' || args[0] !== 'shell') return args;
+  const bashIndex = args.findIndex((value, index) => index > 1 && value === 'bash' && args[index + 1] === '-lc');
+  if (bashIndex < 0 || typeof args[bashIndex + 2] !== 'string') return args;
+  return [
+    ...args.slice(0, bashIndex),
+    '--agentworks-bash-base64',
+    Buffer.from(args[bashIndex + 2], 'utf8').toString('base64'),
+    ...args.slice(bashIndex + 3),
+  ];
 }
 
 function required(name) {

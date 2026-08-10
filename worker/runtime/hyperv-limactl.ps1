@@ -163,5 +163,13 @@ $name=if($command -eq 'edit'){$rest[-1]}else{$rest[0]}; if(!(Valid-Name $name)){
 if($command -eq 'start'){if((Get-State $meta) -ne 'running'){Start-VM -Name (Vm-Name $name)}; [void](Wait-Guest $meta); exit 0}
 if($command -eq 'stop'){if((Get-State $meta) -eq 'running'){Stop-VM -Name (Vm-Name $name) -TurnOff -Force}; exit 0}
 if($command -eq 'edit'){ $cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cpus=[int]$cpu;Set-VMProcessor -VMName (Vm-Name $name) -Count $meta.cpus};if($mem){$meta.memoryMiB=[int]($mem -replace 'MiB$','');Set-VMMemory -VMName (Vm-Name $name) -DynamicMemoryEnabled $false -StartupBytes ($meta.memoryMiB*1MB)};Write-Meta $name $meta;exit 0 }
-if($command -eq 'shell'){Invoke-Guest $meta ([string[]]@($rest | Select-Object -Skip 1))}
+if($command -eq 'shell'){
+  $guestCommand=[string[]]@($rest | Select-Object -Skip 1)
+  if($guestCommand.Count -ge 2 -and $guestCommand[0] -eq '--agentworks-bash-base64') {
+    try { $program=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($guestCommand[1])) }
+    catch { Fail 'shell received an invalid encoded bash program' }
+    $guestCommand=[string[]]@('bash','-lc',$program)+[string[]]@($guestCommand | Select-Object -Skip 2)
+  }
+  Invoke-Guest $meta $guestCommand
+}
 Fail "unsupported Hyper-V compatibility command: $command"
