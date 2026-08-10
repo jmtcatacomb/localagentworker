@@ -194,7 +194,14 @@ PY
     ? await run('bash', ['-lc', authScript], { timeoutMs: 30000, quiet: true, env: masterEnv(), cwd: agentworksRoot })
     : await run(limactl, ['shell', '-y', cell.runtime_name, 'bash', '-lc', authScript], { timeoutMs: 30000, quiet: true });
   const { stdout } = result;
-  const description = JSON.parse(stdout.trim().split('\n').filter(Boolean).at(-1));
+  // CLI shell wrappers can emit a trailing diagnostic line after the Python
+  // JSON result (notably on fresh Windows/Hyper-V guest images). Keep the
+  // protocol resilient by accepting the last syntactically valid JSON object.
+  let description;
+  for (const line of stdout.trim().split('\n').map(line => line.trim()).filter(Boolean).reverse()) {
+    try { description = JSON.parse(line); break; } catch { /* wrapper noise */ }
+  }
+  if (!description || typeof description !== 'object') throw new Error('Workspace descriptor did not return JSON.');
   if (isMasterCell(cell)) description.defaultPath = agentworksRoot;
   description.models = {
     codex: await codexModels(cell).catch(() => []),
