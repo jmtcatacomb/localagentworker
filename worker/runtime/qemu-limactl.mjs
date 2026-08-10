@@ -26,6 +26,7 @@ const ovmfVars = process.env.AGENTWORKS_QEMU_OVMF_VARS || '/usr/share/edk2/ovmf/
 function fail(message) { process.stderr.write(`agentworks QEMU adapter: ${message}\n`); process.exit(2); }
 function option(name) { const index = argv.indexOf(name); return index >= 0 ? argv[index + 1] : null; }
 function validName(name) { return /^[a-z][a-z0-9-]{0,62}$/.test(name || ''); }
+function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`; }
 function instanceDir(name) { return path.join(root, 'instances', name); }
 function metaPath(name) { return path.join(instanceDir(name), 'meta.json'); }
 function run(command, args, options = {}) {
@@ -125,7 +126,11 @@ async function stop(name) {
 }
 async function shell(name, rest) {
   const meta = await readMeta(name); if (!meta || await state(meta) !== 'running') fail(`${name} is not running`);
-  const args = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-i', meta.keyPath, '-p', String(meta.sshPort), `${guestUser}@127.0.0.1`, ...rest];
+  // ssh concatenates trailing arguments into a command interpreted by the
+  // remote shell. Quote each argument ourselves so `bash -lc <multiline
+  // script> ...` keeps its exact argument boundaries.
+  const remoteCommand = rest.map(shellQuote).join(' ');
+  const args = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-i', meta.keyPath, '-p', String(meta.sshPort), `${guestUser}@127.0.0.1`, remoteCommand];
   const child = spawn('ssh', args, { stdio: 'inherit', env: process.env });
   child.on('error', error => fail(error.message)); child.on('close', code => process.exit(code || 0));
 }
