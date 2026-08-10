@@ -137,14 +137,28 @@ function Quote-Remote([string]$value) {
 function Invoke-Guest($meta,[string[]]$command) {
   $ip=Wait-Guest $meta
   if($command.Count -ge 3 -and $command[0] -eq 'bash' -and $command[1] -eq '-lc') {
-    # Keep arbitrary bash source out of SSH's remote-shell re-parsing. The
-    # payload is base64 (therefore shell inert) until it is decoded inside the
-    # guest's bash process. Remaining positional values are controlled runtime
-    # identifiers/paths and retain their original argv order.
-    $payload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command[2]))
-    $tail=@($command | Select-Object -Skip 3 | ForEach-Object { Quote-Remote ([string]$_) })
-    $remoteCommand='bash -c "$(echo '+$payload+' | base64 -d)"'+($(if($tail.Count){' '+($tail -join ' ')}else{''}))
-    & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" $remoteCommand
+    # Windows cmd/PowerShell and OpenSSH all reparse a remote command string.
+    # Transfer a short-lived script instead: only a fixed `bash /tmp/file`
+    # command crosses SSH, while the original program stays byte-for-byte.
+    $tail=@($command | Select-Object -Skip 3 | ForEach-Object { [string]$_ })
+    $argumentPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($tail -join "`n")))
+    # The first native bash -lc argument is $0, so restore only tail[1..] as
+    # positional parameters for compatibility with the Linux adapter contract.
+    $stdinProgram=@'
+__aw_b64='__AGENTWORKS_ARGS__'
+if [ -n "$__aw_b64" ]; then
+  mapfile -t __aw_args < <(printf '%s' "$__aw_b64" | base64 -d)
+  set -- "${__aw_args[@]:1}"
+fi
+'@.Replace('__AGENTWORKS_ARGS__',$argumentPayload) + "`n" + [string]$command[2]
+    $localScript=Join-Path (Instance-Dir $meta.name) ("command-"+[guid]::NewGuid().ToString('N')+".sh")
+    $remoteScript="/tmp/$(Split-Path -Leaf $localScript)"
+    [IO.File]::WriteAllText($localScript,$stdinProgram,(New-Object Text.UTF8Encoding($false)))
+    try {
+      & scp.exe '-q' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath $localScript "${guestUser}@${ip}:$remoteScript"
+      if($LASTEXITCODE -ne 0){Fail 'failed to transfer guest command script'}
+      & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" "bash $remoteScript; rc=`$?; rm -f $remoteScript; exit `$rc"
+    } finally { Remove-Item -Force $localScript -ErrorAction SilentlyContinue }
     exit $LASTEXITCODE
   }
   # OpenSSH joins every command argument with spaces before giving it to the
