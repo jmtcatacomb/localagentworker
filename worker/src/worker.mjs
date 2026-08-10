@@ -774,7 +774,7 @@ exec codex app-server
 }
 
 async function claudeTurn(cell, payload, emit = () => {}) {
-  const nativeSessionId = payload.nativeSessionId || payload.sessionUuid || crypto.randomUUID();
+  const nativeSessionId = payload.nativeSessionId || payload.recoveryNativeSessionId || payload.sessionUuid || crypto.randomUUID();
   const script = String.raw`
 set -e
 cd -- "$1"
@@ -913,6 +913,27 @@ exit "$status"
   } catch (error) {
     const active = activeRuns.get(String(payload.sessionUuid));
     if (active?.stopRequested) throw new Error('TURN_INTERRUPTED');
+    // Claude can leave a zero-byte native transcript after a provider/client
+    // interruption.  The Agentworks UUID and durable chat history are still
+    // authoritative, so recover this one native lane instead of leaving every
+    // future wake permanently stuck on `--resume`.
+    if (payload.nativeSessionId && /no conversation found with session id/i.test(error.message)) {
+      emit({
+        type: 'activity.upsert',
+        event: {
+          id: `claude:resume-recovery:${payload.nativeSessionId}`,
+          type: 'recovery',
+          title: 'Claude native session recovered',
+          content: 'The provider transcript was unavailable; Agentworks retained its stable session UUID and opened a replacement native lane.',
+          status: 'completed',
+        },
+      });
+      return claudeTurn(cell, {
+        ...payload,
+        nativeSessionId: null,
+        recoveryNativeSessionId: crypto.randomUUID(),
+      }, emit);
+    }
     throw error;
   } finally {
     const active = activeRuns.get(String(payload.sessionUuid));
