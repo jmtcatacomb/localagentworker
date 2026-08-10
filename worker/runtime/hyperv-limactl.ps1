@@ -53,8 +53,11 @@ users:
 ssh_pwauth: false
 package_update: false
 "@
-  Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'user-data') $userData
-  Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'meta-data') "instance-id: $(Split-Path -Leaf $directory)`nlocal-hostname: $(Split-Path -Leaf $directory)`n"
+  # Windows PowerShell's UTF-8 encoding adds a BOM. NoCloud requires the
+  # marker filenames/content to be plain text, so these intentionally use
+  # ASCII (all generated values, including OpenSSH public keys, are ASCII).
+  Set-Content -NoNewline -Encoding ascii (Join-Path $directory 'user-data') $userData
+  Set-Content -NoNewline -Encoding ascii (Join-Path $directory 'meta-data') "instance-id: $(Split-Path -Leaf $directory)`nlocal-hostname: $(Split-Path -Leaf $directory)`n"
   # Match the Hyper-V synthetic NIC by its deterministic MAC address rather
   # than assuming Ubuntu's generated interface name. Network config v2 is
   # consumed by current cloud-init/netplan images consistently.
@@ -72,9 +75,11 @@ ethernets:
     nameservers:
       addresses: [1.1.1.1, 8.8.8.8]
 "@
-  Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'network-config') $networkConfig
+  Set-Content -NoNewline -Encoding ascii (Join-Path $directory 'network-config') $networkConfig
   $fs = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
-  $fs.FileSystemsToCreate = 4 # ISO9660
+  # 1 = ISO9660 and 2 = Joliet. UDF-only media is mountable by Linux but is
+  # not considered a NoCloud seed datasource by cloud-init.
+  $fs.FileSystemsToCreate = 3
   $fs.VolumeName = 'cidata'
   $fs.Root.AddTree($directory,$false)
   $image = $fs.CreateResultImage()
