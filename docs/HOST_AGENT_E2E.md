@@ -80,14 +80,14 @@ The current Agentworks codebase supports the reference environment only:
 | Host | Master web console | Host Worker / tenant runtime | Cloud E2E status |
 | --- | --- | --- | --- |
 | macOS | Docker Compose | Lima VZ | reference implementation |
-| Ubuntu 24.04+ | Docker Compose | Incus VM adapter + systemd service | implementation ready; cloud E2E pending |
-| Amazon Linux 2 | Docker Compose | Snap LXD VM adapter + systemd service | bootstrap implemented; clean-host E2E pending |
-| Windows | Docker Desktop may work | Hyper-V/WSL2 adapter | probe/adapter pending |
+| Ubuntu 24.04+ | Docker Compose | Incus VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed; live Claude auth turn pending valid setup token |
+| Amazon Linux 2 | Docker Compose | direct QEMU/KVM VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed and host stopped |
+| Windows Server | Linux-container Docker engine | Hyper-V VM adapter + scheduled native Worker | adapter implemented; clean-host E2E pending |
 
-Thus a three-OS E2E must not claim success today. Ubuntu has a concrete VM adapter,
-but it still requires an actual clean-host cloud run. A Linux Docker-only install
-without Incus/LXD and `/dev/kvm` is rejected rather than silently degrading tenant
-VMs into containers.
+Thus a three-OS E2E must not claim success today. Windows still requires a clean-host
+Hyper-V validation and all OSes require a valid Claude CLI setup token for live agent
+turns. A Linux Docker-only install without a VM runtime and `/dev/kvm` is rejected
+rather than silently degrading tenant VMs into containers.
 
 ## Required user approvals before any AWS mutation
 

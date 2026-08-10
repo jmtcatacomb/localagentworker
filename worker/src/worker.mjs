@@ -20,11 +20,12 @@ const workerId = process.env.WORKER_ID || 'mac-local';
 const masterUrl = required('MASTER_WS_URL');
 const workerToken = required('WORKER_TOKEN');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const hostRuntime = process.env.HOST_RUNTIME || (os.platform() === 'darwin' ? 'lima' : 'incus');
+const hostRuntime = process.env.HOST_RUNTIME || (os.platform() === 'darwin' ? 'lima' : os.platform() === 'win32' ? 'hyperv' : 'incus');
 const limaHome = process.env.LIMA_HOME || path.resolve(process.env.AGENTWORKS_STATE_DIR || path.resolve(__dirname, '../..'), 'runtime');
 const limactl = process.env.LIMACTL_BIN || (hostRuntime === 'lima'
   ? 'limactl'
-  : path.resolve(__dirname, hostRuntime === 'qemu' ? '../runtime/qemu-limactl.mjs' : '../runtime/incus-limactl'));
+  : path.resolve(__dirname, hostRuntime === 'qemu' ? '../runtime/qemu-limactl.mjs' : hostRuntime === 'hyperv' ? '../runtime/hyperv-limactl.cmd' : '../runtime/incus-limactl'));
+const isWindowsRuntime = process.platform === 'win32' && hostRuntime === 'hyperv';
 const bridgeSource = path.resolve(__dirname, '../bridge/agentworks_bridge.py');
 const adminBridgeSource = path.resolve(__dirname, '../bridge/agentworks_admin_bridge.py');
 const agentworksRoot = path.resolve(process.env.AGENTWORKS_ROOT || path.resolve(__dirname, '../..'));
@@ -636,7 +637,7 @@ exec codex app-server
 `;
   const child = isMasterCell(cell)
     ? spawn('bash', ['-lc', script, 'agentworks', identity.sessionUuid || '', identity.address || ''], { env: masterEnv(), cwd: agentworksRoot, stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(limactl, ['shell', '-y', cell.runtime_name, 'bash', '-lc', script, 'agentworks', identity.sessionUuid || '', identity.address || ''], { env: { ...process.env, LIMA_HOME: limaHome }, stdio: ['pipe', 'pipe', 'pipe'] });
+    : spawnRuntime(['shell', '-y', cell.runtime_name, 'bash', '-lc', script, 'agentworks', identity.sessionUuid || '', identity.address || ''], { env: { ...process.env, LIMA_HOME: limaHome }, stdio: ['pipe', 'pipe', 'pipe'] });
   const pending = new Map();
   let seq = 0;
   let stderr = '';
@@ -1066,7 +1067,7 @@ while True:
    except OSError: pass
    break
   s.sendall(data)`;
-    const child = spawn(limactl, ['shell', '-y', cell.runtime_name, 'python3', '-u', '-c', copyScript, String(guestPort)], {
+    const child = spawnRuntime(['shell', '-y', cell.runtime_name, 'python3', '-u', '-c', copyScript, String(guestPort)], {
       env: { ...process.env, LIMA_HOME: limaHome }, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const pair = { hostSocket, child };
@@ -1316,7 +1317,7 @@ async function acknowledgeBridgeOutbox(message) {
 function openTerminal(message) {
   const name = message.cell.runtime_name;
   const env = { ...process.env, LIMA_HOME: limaHome, TERM: 'xterm-256color' };
-  const terminal = pty
+  const terminal = pty && !isWindowsRuntime
     ? pty.spawn(limactl, ['shell', name, 'bash', '-l'], { name: 'xterm-256color', cols: 100, rows: 30, cwd: process.cwd(), env })
     : streamTerminal(limactl, ['shell', name, 'bash', '-l'], env, message.streamId);
   terminals.set(message.streamId, terminal);
@@ -1327,7 +1328,7 @@ function openTerminal(message) {
 }
 
 function streamTerminal(command, args, env, streamId) {
-  const child = spawn(command, args, { cwd: process.cwd(), env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(command, args, { cwd: process.cwd(), env, stdio: ['pipe', 'pipe', 'pipe'], shell: isWindowsRuntime && command === limactl });
   const write = data => child.stdin.write(data);
   const output = chunk => send({ type: 'terminal.output', streamId, data: chunk.toString() });
   child.stdout.on('data', output); child.stderr.on('data', output);
@@ -1426,6 +1427,7 @@ function run(command, args, {
       env: env || { ...process.env, LIMA_HOME: limaHome },
       cwd,
       stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      shell: isWindowsRuntime && command === limactl,
     });
     onChild?.(child);
     let stdout = '';
@@ -1451,6 +1453,10 @@ function run(command, args, {
       else reject(new Error(`${command} ${args[0] || ''} exited ${code}: ${stderr.trim().slice(-1200)}`));
     });
   });
+}
+
+function spawnRuntime(args, options = {}) {
+  return spawn(limactl, args, { ...options, shell: isWindowsRuntime });
 }
 
 function required(name) {

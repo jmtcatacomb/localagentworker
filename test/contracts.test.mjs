@@ -110,6 +110,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const systemd = fs.readFileSync('scripts/install-systemd.mjs', 'utf8');
   const adapter = fs.readFileSync('worker/runtime/incus_lima_compat.mjs', 'utf8');
   const qemuAdapter = fs.readFileSync('worker/runtime/qemu-limactl.mjs', 'utf8');
+  const hypervAdapter = fs.readFileSync('worker/runtime/hyperv-limactl.ps1', 'utf8');
+  const windowsInstaller = fs.readFileSync('agentworks.ps1', 'utf8');
+  const windowsWorkerInstaller = fs.readFileSync('scripts/install-windows-worker.ps1', 'utf8');
   const preflight = fs.readFileSync('scripts/e2e/host-agent-preflight.mjs', 'utf8');
   const awsPlan = fs.readFileSync('scripts/e2e/aws-plan.mjs', 'utf8');
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
@@ -164,6 +167,12 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(qemuAdapter, /qemu-system-x86_64/);
   assert.match(qemuAdapter, /hostfwd=tcp:127\.0\.0\.1/);
   assert.match(qemuAdapter, /sshReady/);
+  assert.match(hypervAdapter, /New-VM/);
+  assert.match(hypervAdapter, /New-VHD/);
+  assert.match(hypervAdapter, /Default Switch/);
+  assert.match(hypervAdapter, /cidata/);
+  assert.match(windowsInstaller, /Install-WindowsFeature -Name Hyper-V/);
+  assert.match(windowsWorkerInstaller, /HOST_RUNTIME = 'hyperv'/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {

@@ -40,6 +40,9 @@ const aws = probe(process.platform === 'win32' ? 'aws.exe' : 'aws', ['--version'
 const incus = probe('incus', ['version']);
 const lxd = probe('lxc', ['version']);
 const qemu = probe('qemu-system-x86_64', ['--version']);
+const hyperv = process.platform === 'win32'
+  ? probe('powershell.exe', ['-NoProfile', '-Command', 'if (Get-Command Get-VM -ErrorAction SilentlyContinue) { exit 0 }; exit 1'])
+  : { available: false, detail: 'not a Windows host' };
 const kvm = process.platform === 'linux' ? fs.existsSync('/dev/kvm') : false;
 
 const runtime = osFamily === 'macos'
@@ -48,7 +51,9 @@ const runtime = osFamily === 'macos'
     ? state((incus.available || lxd.available || qemu.available) && kvm ? 'supported' : 'blocked', (incus.available || lxd.available || qemu.available) && kvm
       ? `${incus.available ? 'Incus' : lxd.available ? 'LXD' : 'QEMU/KVM'} and /dev/kvm detected`
       : `${!kvm ? '/dev/kvm is unavailable; VM isolation requires nested virtualization or bare metal' : 'Install and initialize Incus, LXD, or QEMU/KVM before provisioning tenants'}`)
-    : state('blocked', `${osFamily} Worker adapter is not implemented; probe a Hyper-V/WSL2 runtime before provisioning`);
+    : osFamily === 'windows'
+      ? state(hyperv.available ? 'supported' : 'blocked', hyperv.available ? 'Hyper-V PowerShell module detected' : 'Enable the Hyper-V role and restart Windows before provisioning tenant VMs')
+      : state('blocked', `${osFamily} Worker adapter is not implemented`);
 
 const checks = [
   { id: 'docker', required: true, ...state(docker.available && compose.available ? 'pass' : 'blocked', docker.available && compose.available ? `Docker ${docker.value}; Compose ${compose.value}` : 'Docker Engine and Docker Compose v2 are required') },
