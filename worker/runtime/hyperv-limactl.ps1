@@ -17,7 +17,15 @@ function Meta-Path([string]$name) { Join-Path (Instance-Dir $name) 'meta.json' }
 function Read-Meta([string]$name) { $p=Meta-Path $name; if (Test-Path $p) { return Get-Content -Raw $p | ConvertFrom-Json }; return $null }
 function Write-Meta([string]$name,$meta) { $meta | ConvertTo-Json -Depth 8 | Set-Content -NoNewline -Encoding utf8 (Meta-Path $name) }
 function Vm-Name([string]$name) { "agentworks-$name" }
-function Get-State($meta) { $vm=Get-VM -Name (Vm-Name $meta.name) -ErrorAction SilentlyContinue; if (!$vm) { return 'stopped' }; if ($vm.State -eq 'Running') { return 'running' }; return 'stopped' }
+function Resolve-VM($meta) {
+  if ($meta.vmId) { return Get-VM -Id ([guid]$meta.vmId) -ErrorAction SilentlyContinue }
+  $matches=@(Get-VM -Name (Vm-Name $meta.name) -ErrorAction SilentlyContinue)
+  if($matches.Count -eq 1){return $matches[0]}
+  # Legacy metadata lacked a GUID. Never fan a lifecycle command out to every
+  # duplicate display name; use one deterministic object until it is repaired.
+  return @($matches | Sort-Object Id | Select-Object -First 1)[0]
+}
+function Get-State($meta) { $vm=Resolve-VM $meta; if (!$vm) { return 'stopped' }; if ($vm.State -eq 'Running') { return 'running' }; return 'stopped' }
 function Require-HyperV { if (!(Get-Command Get-VM -ErrorAction SilentlyContinue)) { Fail 'Hyper-V PowerShell module is unavailable; enable the Hyper-V role and restart Windows' } }
 function Ensure-AgentworksSwitch {
   # Server/EC2 images may lack Hyper-V's desktop-only Default Switch.
@@ -126,7 +134,8 @@ function Ensure-BaseImage {
   return $vhdx
 }
 function Guest-Ip($meta) {
-  $ips=@(Get-VMNetworkAdapter -VMName (Vm-Name $meta.name) | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^169\.254\.' })
+  $vm=Resolve-VM $meta
+  $ips=@(if($vm){Get-VMNetworkAdapter -VM $vm | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^169\.254\.' }})
   if ($ips.Count) { return $ips[0] }; return $meta.guestIp
 }
 function Wait-Guest($meta) { $until=(Get-Date).AddMinutes(8); do { $ip=Guest-Ip $meta; if ($ip -and (Test-NetConnection -ComputerName $ip -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue)) { return $ip }; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $until); Fail "guest $($meta.name) did not become reachable over SSH" }
@@ -208,20 +217,20 @@ if ($command -eq 'create') {
   $vm=New-VM -Name (Vm-Name $name) -Generation 2 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
   # Create the ISO from a staging directory. The instance root now contains
   # Hyper-V's locked VM configuration files, which must never be added to it.
-  $seedDir=Join-Path $dir 'seed-input'; $guestMac=Guest-StaticMac $name; Set-VMNetworkAdapter -VMName $vm.Name -StaticMacAddress ($guestMac -replace ':',''); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
-  Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false
+  $seedDir=Join-Path $dir 'seed-input'; $guestMac=Guest-StaticMac $name; Set-VMNetworkAdapter -VM $vm -StaticMacAddress ($guestMac -replace ':',''); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
+  Set-VMProcessor -VM $vm -Count $cpus; Set-VMMemory -VM $vm -DynamicMemoryEnabled $false
   # New-VM defaults Generation-2 firmware to the Microsoft Windows secure-boot
   # database. Generic Ubuntu cloud images are signed by the Microsoft UEFI CA.
-  Set-VMFirmware -VMName $vm.Name -EnableSecureBoot On -SecureBootTemplate 'MicrosoftUEFICertificateAuthority'
-  Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $seedDir 'seed.iso') | Out-Null
-  Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
+  Set-VMFirmware -VM $vm -EnableSecureBoot On -SecureBootTemplate 'MicrosoftUEFICertificateAuthority'
+  Add-VMDvdDrive -VM $vm -Path (Join-Path $seedDir 'seed.iso') | Out-Null
+  Write-Meta $name ([pscustomobject]@{name=$name;vmId=$vm.Id.ToString();cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
 $rest=@($argvCopy | Select-Object -Skip 1 | Where-Object { $_ -ne '-y' })
 if($command -eq 'copy'){ if($rest.Count -ne 2){Fail 'copy requires source and destination'}; $parts=$rest[1].Split(':',2); if($parts.Count -ne 2){Fail 'copy destination must be instance:/absolute/path'}; $m=Read-Meta $parts[0]; if(!$m -or (Get-State $m) -ne 'running'){Fail "$($parts[0]) is not running"}; $ip=Wait-Guest $m; & scp.exe '-q' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $m.keyPath $rest[0] "${guestUser}@${ip}:$($parts[1])"; exit $LASTEXITCODE }
 $name=if($command -eq 'edit'){$rest[-1]}else{$rest[0]}; if(!(Valid-Name $name)){Fail "$command requires an instance name"}; $meta=Read-Meta $name; if(!$meta){Fail "unknown instance $name"}
-if($command -eq 'start'){if((Get-State $meta) -ne 'running'){Start-VM -Name (Vm-Name $name)}; [void](Wait-Guest $meta); exit 0}
-if($command -eq 'stop'){if((Get-State $meta) -eq 'running'){Stop-VM -Name (Vm-Name $name) -TurnOff -Force}; exit 0}
-if($command -eq 'edit'){ $cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cpus=[int]$cpu;Set-VMProcessor -VMName (Vm-Name $name) -Count $meta.cpus};if($mem){$meta.memoryMiB=[int]($mem -replace 'MiB$','');Set-VMMemory -VMName (Vm-Name $name) -DynamicMemoryEnabled $false -StartupBytes ($meta.memoryMiB*1MB)};Write-Meta $name $meta;exit 0 }
+if($command -eq 'start'){if((Get-State $meta) -ne 'running'){$vm=Resolve-VM $meta;if(!$vm){Fail "Hyper-V VM for $name is missing"};Start-VM -VM $vm}; [void](Wait-Guest $meta); exit 0}
+if($command -eq 'stop'){if((Get-State $meta) -eq 'running'){Stop-VM -VM (Resolve-VM $meta) -TurnOff -Force}; exit 0}
+if($command -eq 'edit'){ $vm=Resolve-VM $meta;if(!$vm){Fail "Hyper-V VM for $name is missing"};$cpu=Opt '--cpus';$mem=Opt '--memory';if($cpu){$meta.cpus=[int]$cpu;Set-VMProcessor -VM $vm -Count $meta.cpus};if($mem){$meta.memoryMiB=[int]($mem -replace 'MiB$','');Set-VMMemory -VM $vm -DynamicMemoryEnabled $false -StartupBytes ($meta.memoryMiB*1MB)};Write-Meta $name $meta;exit 0 }
 if($command -eq 'shell'){
   $guestCommand=[string[]]@($rest | Select-Object -Skip 1)
   if($guestCommand.Count -eq 2 -and $guestCommand[0] -eq '--agentworks-command-json-base64') {

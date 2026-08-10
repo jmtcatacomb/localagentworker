@@ -180,6 +180,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(hypervAdapter, /New-VHD/);
   assert.match(hypervAdapter, /Default Switch/);
   assert.match(hypervAdapter, /cidata/);
+  assert.match(hypervAdapter, /vmId=\$vm\.Id\.ToString\(\)/);
+  assert.match(hypervAdapter, /function Resolve-VM/);
+  assert.doesNotMatch(hypervAdapter, /Start-VM -Name \(Vm-Name/);
   assert.match(windowsInstaller, /Install-WindowsFeature -Name Hyper-V/);
   assert.match(windowsWorkerInstaller, /HOST_RUNTIME = 'hyperv'/);
 });
