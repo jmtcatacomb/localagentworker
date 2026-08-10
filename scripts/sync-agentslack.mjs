@@ -158,10 +158,17 @@ const temporary = `${bindingFile}.${process.pid}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify({ version: 1, bindings: next }, null, 2)}\n`, { mode: 0o600 });
 fs.renameSync(temporary, bindingFile);
 fs.chmodSync(bindingFile, 0o600);
+let protection = '0600';
+if (process.platform === 'win32') {
+  execFileSync('icacls.exe', [
+    bindingFile, '/inheritance:r', '/grant:r', '*S-1-5-32-544:F', '*S-1-5-18:F',
+  ], { stdio: 'ignore' });
+  protection = 'Administrators+SYSTEM ACL';
+}
 console.log(JSON.stringify({
   ok: true,
   server: control.serverSlug,
   bindings: results,
   bindingFile,
-  mode: (fs.statSync(bindingFile).mode & 0o777).toString(8),
+  protection,
 }, null, 2));
