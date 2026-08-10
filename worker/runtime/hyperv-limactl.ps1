@@ -53,19 +53,20 @@ package_update: false
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'user-data') $userData
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'meta-data') "instance-id: $(Split-Path -Leaf $directory)`nlocal-hostname: $(Split-Path -Leaf $directory)`n"
   $networkConfig = @"
-version: 2
-ethernets:
-  agentworks-nic:
-    match:
-      macaddress: "$guestMac"
-    set-name: eth0
-    dhcp4: false
-    addresses: [$guestIp/16]
-    routes:
-      - to: default
-        via: 172.28.0.1
-    nameservers:
-      addresses: [1.1.1.1, 8.8.8.8]
+network:
+  version: 2
+  ethernets:
+    agentworks-nic:
+      match:
+        macaddress: "$guestMac"
+      set-name: eth0
+      dhcp4: false
+      addresses: [$guestIp/16]
+      routes:
+        - to: default
+          via: 172.28.0.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]
 "@
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'network-config') $networkConfig
   $fs = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
