@@ -28,14 +28,18 @@ async function request(route, { method = 'GET', body, expected = [200] } = {}) {
   return value;
 }
 
-if (action === 'open') {
-  await request('/api/admin/cells/cell-win-e2e/exec', {
-    method: 'POST',
-    body: {
-      command: 'docker rm -f agentworks-e2e-http >/dev/null 2>&1 || true; docker run -d --name agentworks-e2e-http -p 18081:80 nginx:alpine; for n in 1 2 3 4 5 6 7 8 9 10; do curl -fsS http://127.0.0.1:18081/ >/dev/null && exit 0; sleep 1; done; exit 1',
-      timeoutSeconds: 120,
-    },
+async function execVm(command, timeoutSeconds) {
+  const value = await request('/api/admin/cells/cell-win-e2e/exec', {
+    method: 'POST', body: { command, timeoutSeconds },
   });
+  if (!value.ok || value.result?.exitCode !== 0) {
+    throw new Error(`VM command failed (${value.result?.exitCode ?? 'unknown'}): ${String(value.result?.stderr || value.result?.stdout || '').slice(-500)}`);
+  }
+  return value.result;
+}
+
+if (action === 'open') {
+  await execVm('docker rm -f agentworks-e2e-http >/dev/null 2>&1 || true; docker run -d --name agentworks-e2e-http -p 18081:80 nginx:alpine; for n in 1 2 3 4 5 6 7 8 9 10; do curl -fsS http://127.0.0.1:18081/ >/dev/null && exit 0; sleep 1; done; exit 1', 120);
   const value = await request('/api/admin/ports', {
     method: 'POST', expected: [201],
     body: { cellId: 'cell-win-e2e', guestPort: 18081, hostPort: 20000, bindAddress: '0.0.0.0' },
@@ -46,9 +50,7 @@ if (action === 'open') {
 } else {
   const record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
   await request(`/api/admin/ports/${record.routeId}`, { method: 'DELETE', expected: [200] });
-  await request('/api/admin/cells/cell-win-e2e/exec', {
-    method: 'POST', body: { command: 'docker rm -f agentworks-e2e-http >/dev/null 2>&1 || true', timeoutSeconds: 30 },
-  });
+  await execVm('docker rm -f agentworks-e2e-http >/dev/null 2>&1 || true', 30);
   fs.rmSync(recordFile, { force: true });
   console.log(JSON.stringify({ ok: true, action, routeId: record.routeId, revoked: true }));
 }

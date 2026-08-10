@@ -132,6 +132,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(adapter, /ubuntu:24\.04/);
   assert.match(adapter, /\['exec', name, \.\.\.identity, '--'/);
   assert.match(adapter, /else process\.stdout\.write\(chunk\)/);
+  assert.match(adapter, /--init-groups/);
   const worker = fs.readFileSync('worker/src/worker.mjs', 'utf8');
   assert.match(worker, /await waitForGuestRuntime\(name\)/);
   assert.match(worker, /hostRuntime !== 'incus'/);

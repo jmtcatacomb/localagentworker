@@ -75,9 +75,16 @@ if (command === 'list') {
   const guestUser = process.env.AGENTWORKS_GUEST_USER || '';
   const guestPath = guestHome ? `${guestHome}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin` : '';
   const identity = guestUid
-    ? ['--user', guestUid, '--group', guestGid, ...(guestHome ? ['--cwd', guestHome, '--env', `HOME=${guestHome}`] : []), ...(guestPath ? ['--env', `PATH=${guestPath}`] : []), ...(guestUser ? ['--env', `USER=${guestUser}`, '--env', `LOGNAME=${guestUser}`] : [])]
+    ? [...(guestHome ? ['--cwd', guestHome, '--env', `HOME=${guestHome}`] : []), ...(guestPath ? ['--env', `PATH=${guestPath}`] : []), ...(guestUser ? ['--env', `USER=${guestUser}`, '--env', `LOGNAME=${guestUser}`] : [])]
     : [];
-  invoke(['exec', name, ...identity, '--', ...rest]);
+  // `lxc exec --user/--group` supplies only the primary group, which silently
+  // drops the tenant user's `docker` supplementary group. Enter as root and
+  // let setpriv initialize the image's authoritative group membership before
+  // executing the requested command.
+  const commandArgs = guestUid
+    ? ['setpriv', `--reuid=${guestUid}`, `--regid=${guestGid}`, '--init-groups', '--', ...rest]
+    : rest;
+  invoke(['exec', name, ...identity, '--', ...commandArgs]);
 } else if (command === 'copy') {
   const rest = argv.slice(1);
   if (rest.length !== 2) fail('copy requires source and destination');
