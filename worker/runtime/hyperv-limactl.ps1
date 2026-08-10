@@ -37,6 +37,7 @@ function Guest-StaticIp([string]$name) {
   return "172.28.$(2 + ($bytes[0] % 252)).$(2 + ($bytes[1] % 252))"
 }
 function Write-SeedIso([string]$directory,[string]$publicKey,[string]$guestIp,[string]$guestMac) {
+  New-Item -ItemType Directory -Force $directory | Out-Null
   $userData = @"
 #cloud-config
 users:
