@@ -41,10 +41,32 @@ function Prepare-Host {
     $env:Path="$env:ProgramFiles\nodejs;$env:Path"
   }
   if (!(Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw 'WSL is not available on this Windows image.' }
+  $restartRequired=$false
+  foreach($feature in @('Microsoft-Windows-Subsystem-Linux','VirtualMachinePlatform')) {
+    $state=(Get-WindowsOptionalFeature -Online -FeatureName $feature).State
+    if($state -ne 'Enabled') {
+      & dism.exe /online /enable-feature "/featurename:$feature" /all /norestart
+      if($LASTEXITCODE -notin @(0,3010)){throw "Unable to enable $feature (DISM exit $LASTEXITCODE)."}
+      $restartRequired=$true
+    }
+  }
+  if($restartRequired){throw 'Windows WSL features were enabled. Reboot Windows, then rerun .\agentworks.ps1 prepare-host.'}
+  # EC2 Server images often include the inbox wsl.exe but not the current WSL
+  # package. Install the signed Microsoft WSL MSI from its official release so
+  # this path does not depend on Microsoft Store availability.
+  $wslProbe=& wsl.exe --version 2>&1
+  if($LASTEXITCODE -ne 0) {
+    $release=Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/microsoft/WSL/releases/latest'
+    $asset=@($release.assets | Where-Object { $_.name -match '^wsl\..*\.x64\.msi$' } | Select-Object -First 1)
+    if(!$asset){throw 'Could not locate the official x64 WSL release asset.'}
+    $msi=Join-Path $env:TEMP $asset.name
+    Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $msi
+    Start-Process msiexec.exe -Wait -ArgumentList @('/i',$msi,'/qn','/norestart')
+  }
   $distros=@(& wsl.exe -l -q 2>$null | ForEach-Object { $_.Trim([char]0x00).Trim() } | Where-Object { $_ })
   if ($distros -notcontains 'Ubuntu') {
-    & wsl.exe --install -d Ubuntu --no-launch
-    throw 'WSL Ubuntu was requested. Reboot Windows, complete the first Ubuntu launch once, then rerun .\agentworks.ps1 prepare-host.'
+    & wsl.exe --install -d Ubuntu --web-download --no-launch
+    if($LASTEXITCODE -ne 0){throw "Unable to install Ubuntu for WSL (exit $LASTEXITCODE)."}
   }
   Setup-Master
 }
