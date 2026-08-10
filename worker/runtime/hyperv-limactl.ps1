@@ -20,7 +20,23 @@ function Write-Meta([string]$name,$meta) { $meta | ConvertTo-Json -Depth 8 | Set
 function Vm-Name([string]$name) { "agentworks-$name" }
 function Get-State($meta) { $vm=Get-VM -Name (Vm-Name $meta.name) -ErrorAction SilentlyContinue; if (!$vm) { return 'stopped' }; if ($vm.State -eq 'Running') { return 'running' }; return 'stopped' }
 function Require-HyperV { if (!(Get-Command Get-VM -ErrorAction SilentlyContinue)) { Fail 'Hyper-V PowerShell module is unavailable; enable the Hyper-V role and restart Windows' } }
-function Write-SeedIso([string]$directory,[string]$publicKey) {
+function Ensure-AgentworksSwitch {
+  # Server/EC2 images may lack Hyper-V's desktop-only Default Switch.
+  $name='Agentworks NAT'; $prefix='172.28.0.0/16'; $gateway='172.28.0.1'
+  $switch=Get-VMSwitch -Name $name -ErrorAction SilentlyContinue
+  if (!$switch) { $switch=New-VMSwitch -Name $name -SwitchType Internal }
+  $adapter=Get-NetAdapter -Name "vEthernet ($name)" -ErrorAction SilentlyContinue
+  if (!$adapter) { Fail "Hyper-V NAT adapter for $name is unavailable" }
+  $ip=Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -eq $gateway }
+  if (!$ip) { New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 16 | Out-Null }
+  if (!(Get-NetNat -Name 'AgentworksNAT' -ErrorAction SilentlyContinue)) { New-NetNat -Name 'AgentworksNAT' -InternalIPInterfaceAddressPrefix $prefix | Out-Null }
+  return $switch
+}
+function Guest-StaticIp([string]$name) {
+  $bytes=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($name))
+  return "172.28.$(2 + ($bytes[0] % 252)).$(2 + ($bytes[1] % 252))"
+}
+function Write-SeedIso([string]$directory,[string]$publicKey,[string]$guestIp) {
   $userData = @"
 #cloud-config
 users:
@@ -35,6 +51,22 @@ package_update: false
 "@
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'user-data') $userData
   Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'meta-data') "instance-id: $(Split-Path -Leaf $directory)`nlocal-hostname: $(Split-Path -Leaf $directory)`n"
+  $networkConfig = @"
+network:
+  version: 2
+  ethernets:
+    agentworks-nic:
+      match:
+        name: "e*"
+      dhcp4: false
+      addresses: [$guestIp/16]
+      routes:
+        - to: default
+          via: 172.28.0.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]
+"@
+  Set-Content -NoNewline -Encoding utf8 (Join-Path $directory 'network-config') $networkConfig
   $fs = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
   $fs.FileSystemsToCreate = 4 # ISO9660
   $fs.VolumeName = 'cidata'
@@ -94,18 +126,18 @@ function Ensure-BaseImage {
     }
     # GNU tar preserves the image's sparse representation and NTFS may retain
     # compression. Hyper-V rejects either attribute for a differencing parent.
-    & compact.exe /U /Q $vhd
+    & compact.exe /U /Q $vhd | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "failed to uncompress Hyper-V base image (compact exit $LASTEXITCODE)" }
-    & cipher.exe /D /Q $vhd
+    & cipher.exe /D /Q $vhd | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "failed to decrypt Hyper-V base image (cipher exit $LASTEXITCODE)" }
-    & fsutil.exe sparse setflag $vhd 0
+    & fsutil.exe sparse setflag $vhd 0 | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "failed to clear sparse flag on Hyper-V base image (fsutil exit $LASTEXITCODE)" }
   } finally { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() }
   return $vhd
 }
 function Guest-Ip($meta) {
   $ips=@(Get-VMNetworkAdapter -VMName (Vm-Name $meta.name) | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^169\.254\.' })
-  if (!$ips.Count) { return $null }; return $ips[0]
+  if ($ips.Count) { return $ips[0] }; return $meta.guestIp
 }
 function Wait-Guest($meta) { $until=(Get-Date).AddMinutes(8); do { $ip=Guest-Ip $meta; if ($ip -and (Test-NetConnection -ComputerName $ip -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue)) { return $ip }; Start-Sleep -Seconds 2 } while ((Get-Date) -lt $until); Fail "guest $($meta.name) did not become reachable over SSH" }
 function Invoke-Guest($meta,[string[]]$command) { $ip=Wait-Guest $meta; & ssh.exe '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $meta.keyPath "$guestUser@$ip" @command; exit $LASTEXITCODE }
@@ -124,11 +156,11 @@ if ($command -eq 'create') {
   if($keygen.ExitCode -ne 0){Fail 'ssh-keygen failed'}
   # Hyper-V requires a differencing child to keep the same disk format as its
   # parent. Canonical's Azure image is VHD (not VHDX).
-  Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()); $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
-  $switch=(Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue); if(!$switch){Fail 'Hyper-V Default Switch is unavailable'}
+  $guestIp=Guest-StaticIp $name; Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()) $guestIp; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
+  $switch=Ensure-AgentworksSwitch
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
   Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $dir 'seed.iso') | Out-Null
-  Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
+  Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
 $rest=@($argvCopy | Select-Object -Skip 1 | Where-Object { $_ -ne '-y' })
 if($command -eq 'copy'){ if($rest.Count -ne 2){Fail 'copy requires source and destination'}; $parts=$rest[1].Split(':',2); if($parts.Count -ne 2){Fail 'copy destination must be instance:/absolute/path'}; $m=Read-Meta $parts[0]; if(!$m -or (Get-State $m) -ne 'running'){Fail "$($parts[0]) is not running"}; $ip=Wait-Guest $m; & scp.exe '-q' '-o' 'StrictHostKeyChecking=no' '-o' 'UserKnownHostsFile=NUL' '-i' $m.keyPath $rest[0] "${guestUser}@${ip}:$($parts[1])"; exit $LASTEXITCODE }
