@@ -154,13 +154,17 @@ function Invoke-Guest($meta,[string[]]$command) {
     # Transfer a short-lived script instead: only a fixed `bash /tmp/file`
     # command crosses SSH, while the original program stays byte-for-byte.
     $tail=@($command | Select-Object -Skip 3 | ForEach-Object { [string]$_ })
-    $argumentPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($tail -join "`n")))
+    # Individual arguments may themselves contain newlines (managed MCP
+    # instructions do).  Serialize the argv array as JSON and restore it with
+    # NUL separators, rather than treating newline as an argument boundary.
+    $argumentJson=ConvertTo-Json -Compress -InputObject $tail
+    $argumentPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($argumentJson))
     # The first native bash -lc argument is $0, so restore only tail[1..] as
     # positional parameters for compatibility with the Linux adapter contract.
     $stdinProgram=@'
 __aw_b64='__AGENTWORKS_ARGS__'
 if [ -n "$__aw_b64" ]; then
-  mapfile -t __aw_args < <(printf '%s' "$__aw_b64" | base64 -d)
+  mapfile -d '' -t __aw_args < <(printf '%s' "$__aw_b64" | base64 -d | python3 -c 'import json,sys; values=json.load(sys.stdin); sys.stdout.buffer.write(b"\0".join(str(value).encode() for value in values)+b"\0")')
   set -- "${__aw_args[@]:1}"
 fi
 '@.Replace('__AGENTWORKS_ARGS__',$argumentPayload) + "`n" + [string]$command[2]
