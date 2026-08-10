@@ -88,26 +88,29 @@ async function waitSessionReady(cookie, sessionUuid) {
 }
 
 async function directTurn(cookie, session, label) {
-  await waitSessionReady(cookie, session.session_uuid);
-  const marker = `AGENTWORKS_${label}_${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+  const before = await waitSessionReady(cookie, session.session_uuid);
+  const priorAssistantIds = new Set(before.messages.filter(message => message.role === 'assistant').map(message => message.id));
+  const expected = `${label.toLowerCase().replaceAll('_', ' ')} check passed`;
   await request(`/api/sessions/${session.session_uuid}/messages`, {
     cookie,
     method: 'POST',
     expected: [202],
-    body: { content: `Reply with exactly ${marker} and nothing else.` },
+    body: { content: `This is an authorized Agentworks E2E health check. Confirm success using the sentence: ${expected}.` },
   });
   await waitFor(`${label} direct Claude reply`, async () => {
     const value = (await request(`/api/sessions/${session.session_uuid}/messages`, { cookie })).value;
-    const reply = value.messages.find(message => message.role === 'assistant' && message.content.includes(marker));
+    const reply = value.messages.find(message => message.role === 'assistant'
+      && !priorAssistantIds.has(message.id)
+      && message.content.toLowerCase().includes(expected));
     if (reply) return reply;
     if (value.session.status === 'error') throw new Error(`${label} session entered error state`);
     return false;
   });
-  return marker;
+  return expected;
 }
 
 async function interSessionWake(cookie, source, target, label) {
-  const marker = `AGENTWORKS_${label}_${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+  const expected = `${label.toLowerCase().replaceAll('_', ' ')} check passed`;
   const message = (await request('/api/inter-session/messages', {
     cookie,
     method: 'POST',
@@ -115,18 +118,19 @@ async function interSessionWake(cookie, source, target, label) {
     body: {
       source: source.session_uuid,
       target: target.session_uuid,
-      content: `Reply with exactly ${marker} and nothing else.`,
+      content: `This is an authorized Agentworks E2E health check. Confirm success using the sentence: ${expected}.`,
       expectReply: false,
-      idempotencyKey: `e2e:${label}:${marker}`,
+      idempotencyKey: `e2e:${label}:${crypto.randomUUID()}`,
     },
   })).value.message;
   await waitFor(`${label} durable acknowledgement`, async () => {
     const messages = (await request('/api/inter-session/messages', { cookie })).value.messages;
     const current = messages.find(item => item.id === message.id);
     if (current?.status === 'failed' || current?.status === 'expired') throw new Error(`${label} delivery ${current.status}: ${current.lastError || 'unknown error'}`);
-    return current?.status === 'acknowledged' && String(current.result?.answer || '').includes(marker) ? current : false;
+    return current?.status === 'acknowledged'
+      && String(current.result?.answer || '').toLowerCase().includes(expected) ? current : false;
   }, { timeoutMs: 50 * 60_000 });
-  return marker;
+  return expected;
 }
 
 const health = (await request('/healthz')).value;
