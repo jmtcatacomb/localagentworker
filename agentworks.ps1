@@ -41,7 +41,36 @@ function Setup-Master {
   $distro=Get-WslDistro
   # Docker Desktop is not a dependency: Windows Server hosts the Linux Master
   # in its Ubuntu WSL2 distribution, while tenant VMs remain native Hyper-V VMs.
-  Invoke-WslRoot 'export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y docker.io docker-compose-v2 || apt-get install -y docker.io docker-compose-plugin; (service docker start || true); if ! docker info >/dev/null 2>&1; then nohup dockerd >/var/log/agentworks-dockerd.log 2>&1 & for n in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; fi; docker info >/dev/null'
+  Invoke-WslRoot 'export DEBIAN_FRONTEND=noninteractive; apt-get update; (apt-get install -y docker.io docker-compose-v2 || apt-get install -y docker.io docker-compose-plugin); apt-get install -y qemu-utils; (service docker start || true); if ! docker info >/dev/null 2>&1; then nohup dockerd >/var/log/agentworks-dockerd.log 2>&1 & for n in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; fi; docker info >/dev/null'
+}
+function Ensure-HypervBaseImage {
+  # The generic Ubuntu cloud image is UEFI/GPT and must be booted as a
+  # Generation-2 VM. Hyper-V Generation 2 accepts VHDX, not the legacy VHD
+  # format. Do this conversion here under the installing Administrator's WSL
+  # identity; the runtime worker deliberately runs as SYSTEM and cannot rely
+  # on an interactive user's WSL registration.
+  $base=Join-Path $StateDir 'runtime\hyperv\base'
+  $source=Join-Path $base 'ubuntu-24.04-generic.img'
+  $vhdx=Join-Path $base 'ubuntu-24.04-generic.vhdx'
+  if(Test-Path $vhdx){ return }
+  New-Item -ItemType Directory -Force $base | Out-Null
+  if(!(Test-Path $source)) {
+    $partial="$source.partial"
+    Remove-Item -Force $partial -ErrorAction SilentlyContinue
+    & "$env:SystemRoot\System32\curl.exe" '--fail' '--location' '--retry' '3' '--connect-timeout' '30' '--output' $partial 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'
+    if($LASTEXITCODE -ne 0){throw "Unable to download the Ubuntu Hyper-V base image (curl exit $LASTEXITCODE)."}
+    Move-Item -Force $partial $source
+  }
+  $sourceWsl=ConvertTo-WslPath $source
+  $vhdxWsl=ConvertTo-WslPath $vhdx
+  Invoke-WslRoot "command -v qemu-img >/dev/null && qemu-img convert -p -f qcow2 -O vhdx $(Quote-Sh $sourceWsl) $(Quote-Sh $vhdxWsl)"
+  if(!(Test-Path $vhdx)){throw 'qemu-img did not create the Hyper-V VHDX base image.'}
+  & compact.exe /U /Q $vhdx | Out-Null
+  if($LASTEXITCODE -ne 0){throw "Unable to uncompress the Hyper-V VHDX base image (compact exit $LASTEXITCODE)."}
+  & cipher.exe /D /Q $vhdx | Out-Null
+  if($LASTEXITCODE -ne 0){throw "Unable to decrypt the Hyper-V VHDX base image (cipher exit $LASTEXITCODE)."}
+  & fsutil.exe sparse setflag $vhdx 0 | Out-Null
+  if($LASTEXITCODE -ne 0){throw "Unable to clear the sparse flag on the Hyper-V VHDX base image (fsutil exit $LASTEXITCODE)."}
 }
 function Compose([string[]]$Arguments) {
   $wslRoot=ConvertTo-WslPath $Root
@@ -95,6 +124,8 @@ function Setup-Worker {
   if (!(Get-Command node.exe -ErrorAction SilentlyContinue)) { throw 'Node.js 20+ is required for the native Worker. Install it, then rerun .\agentworks.ps1 setup-worker.' }
   $role=Get-WindowsFeature -Name Hyper-V -ErrorAction SilentlyContinue
   if (!$role -or !$role.Installed) { Install-WindowsFeature -Name Hyper-V -IncludeManagementTools | Out-Null; throw 'Hyper-V was installed. Reboot Windows, then rerun .\agentworks.ps1 setup-worker.' }
+  Setup-Master
+  Ensure-HypervBaseImage
   & npm.cmd install --prefix (Join-Path $Root 'worker') --omit=dev
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\install-windows-worker.ps1') -Root $Root -StateDir $StateDir
 }

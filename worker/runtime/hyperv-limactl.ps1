@@ -8,7 +8,6 @@ $runtimeHome = [Environment]::GetEnvironmentVariable('LIMA_HOME')
 if (!$runtimeHome) { $runtimeHome = Join-Path (Get-Location) '.agentworks\runtime' }
 $root = Join-Path $runtimeHome 'hyperv'
 $guestUser = if ($env:AGENTWORKS_GUEST_USER) { $env:AGENTWORKS_GUEST_USER } else { 'ubuntu' }
-$imageUrl = if ($env:AGENTWORKS_HYPERV_IMAGE_URL) { $env:AGENTWORKS_HYPERV_IMAGE_URL } else { 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64-azure.vhd.tar.gz' }
 
 function Fail([string]$message) { throw "agentworks Hyper-V adapter: $message" }
 function Valid-Name([string]$name) { return $name -match '^[a-z][a-z0-9-]{0,62}$' }
@@ -106,42 +105,12 @@ namespace Agentworks {
   [Agentworks.ImapiStreamWriter]::Write($image.ImageStream, (Join-Path $directory 'seed.iso'))
 }
 function Ensure-BaseImage {
-  $baseDir=Join-Path $root 'base'; $archive=Join-Path $baseDir 'ubuntu-24.04-azure.vhd.tar.gz'; $vhd=Join-Path $baseDir 'ubuntu-24.04-azure.vhd'
-  New-Item -ItemType Directory -Force $baseDir | Out-Null
-  # Multiple cells may be provisioned concurrently; download/extract the shared
-  # base image exactly once across their separate adapter processes.
-  $mutex=New-Object System.Threading.Mutex($false,'Global\AgentworksHyperVBaseImage')
-  if (!$mutex.WaitOne([TimeSpan]::FromMinutes(20))) { Fail 'timed out waiting for the shared Hyper-V base image lock' }
-  try {
-    if (!(Test-Path $vhd)) {
-      $partial="$archive.partial"
-      Remove-Item -Force $partial -ErrorAction SilentlyContinue
-      # Invoke-WebRequest can stall indefinitely while streaming a large image
-      # under the SYSTEM scheduled-task account.  curl.exe is inbox on supported
-      # Windows Server releases and gives us bounded connection retries.
-      & "$env:SystemRoot\System32\curl.exe" '--fail' '--location' '--retry' '3' '--connect-timeout' '30' '--output' $partial $imageUrl
-      if ($LASTEXITCODE -ne 0) { Fail "failed to download Hyper-V base image (curl exit $LASTEXITCODE)" }
-      Move-Item -Force $partial $archive
-      & tar.exe -xzf $archive -C $baseDir
-      $candidate=Get-ChildItem $baseDir -Filter '*.vhd' | Select-Object -First 1
-      if (!$candidate) { Fail 'Ubuntu Azure VHD archive did not contain a VHD' }
-      Move-Item -Force $candidate.FullName $vhd
-    }
-    # GNU tar preserves the image's sparse representation and NTFS may retain
-    # compression. Hyper-V rejects either attribute for a differencing parent.
-    # After the first success, never touch the locked parent while cells start.
-    $normalized = "$vhd.agentworks-normalized"
-    if (!(Test-Path $normalized)) {
-      & compact.exe /U /Q $vhd | Out-Null
-      if ($LASTEXITCODE -ne 0) { Fail "failed to uncompress Hyper-V base image (compact exit $LASTEXITCODE)" }
-      & cipher.exe /D /Q $vhd | Out-Null
-      if ($LASTEXITCODE -ne 0) { Fail "failed to decrypt Hyper-V base image (cipher exit $LASTEXITCODE)" }
-      & fsutil.exe sparse setflag $vhd 0 | Out-Null
-      if ($LASTEXITCODE -ne 0) { Fail "failed to clear sparse flag on Hyper-V base image (fsutil exit $LASTEXITCODE)" }
-      Set-Content -NoNewline -Encoding ascii $normalized 'ok'
-    }
-  } finally { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() }
-  return $vhd
+  $vhdx=Join-Path (Join-Path $root 'base') 'ubuntu-24.04-generic.vhdx'
+  # The setup script performs the QCOW2 -> VHDX conversion before installing
+  # the SYSTEM worker. This keeps the runtime deterministic and avoids trying
+  # to access an interactive user's WSL distribution from the service account.
+  if (!(Test-Path $vhdx)) { Fail 'Hyper-V base VHDX is missing; run .\agentworks.ps1 setup-worker as Administrator' }
+  return $vhdx
 }
 function Guest-Ip($meta) {
   $ips=@(Get-VMNetworkAdapter -VMName (Vm-Name $meta.name) | Select-Object -ExpandProperty IPAddresses | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^169\.254\.' })
@@ -162,9 +131,9 @@ if ($command -eq 'create') {
   $emptyQuoted=([char]34).ToString()+([char]34).ToString()
   $keygen=Start-Process -FilePath ssh-keygen.exe -ArgumentList @('-q','-t','ed25519','-N',$emptyQuoted,'-f',$key) -Wait -PassThru -NoNewWindow
   if($keygen.ExitCode -ne 0){Fail 'ssh-keygen failed'}
-  # Hyper-V requires a differencing child to keep the same disk format as its
-  # parent. Canonical's Azure image is VHD (not VHDX).
-  $guestIp=Guest-StaticIp $name; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhd'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
+  # Generation-2 requires VHDX. A differencing child also keeps each tenant's
+  # changes separate from the immutable generic Ubuntu base image.
+  $guestIp=Guest-StaticIp $name; $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhdx'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=Ensure-AgentworksSwitch
   # The generic Ubuntu cloud image is a UEFI/GPT disk, so Hyper-V must use
   # Generation 2 rather than the BIOS-only Generation 1 profile.
