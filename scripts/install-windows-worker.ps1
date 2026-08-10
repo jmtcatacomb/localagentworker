@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 $taskName = 'Agentworks LocalAgentWorker'
+$keepaliveTaskName = 'Agentworks WSL Docker Keepalive'
 $envFile = Join-Path $StateDir 'config\master.env'
 $values = @{}
 Get-Content $envFile | Where-Object { $_ -match '=' } | ForEach-Object { $i=$_.IndexOf('='); $values[$_.Substring(0,$i)]=$_.Substring($i+1) }
@@ -46,5 +47,11 @@ $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description $description
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+$wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
+$keepaliveAction = New-ScheduledTaskAction -Execute $wsl -Argument '-d Ubuntu -u root -- bash -lc "while :; do sleep 3600; done"'
+$keepaliveTask = New-ScheduledTask -Action $keepaliveAction -Trigger $trigger -Settings $settings -Principal $principal -Description 'Keeps the WSL2 Linux Docker engine alive for Agentworks Master.'
+Unregister-ScheduledTask -TaskName $keepaliveTaskName -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $keepaliveTaskName -InputObject $keepaliveTask -Force | Out-Null
+Start-ScheduledTask -TaskName $keepaliveTaskName
 Start-ScheduledTask -TaskName $taskName
-Write-Output "Windows Host Worker installed: $taskName"
+Write-Output "Windows Host Worker installed: $taskName (with $keepaliveTaskName)"
