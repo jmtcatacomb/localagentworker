@@ -62,6 +62,7 @@ setup_worker_linux() {
   if [ -z "$RUNTIME" ]; then
     if command -v incus >/dev/null 2>&1; then RUNTIME=incus
     elif command -v lxc >/dev/null 2>&1; then RUNTIME=lxd
+    elif command -v yum >/dev/null 2>&1; then RUNTIME=qemu
     else RUNTIME=incus; fi
   fi
   if [ "$RUNTIME" = "incus" ] && ! command -v incus >/dev/null 2>&1; then
@@ -72,9 +73,9 @@ setup_worker_linux() {
       sudo usermod -aG incus-admin "${SUDO_USER:-$USER}"
     elif command -v yum >/dev/null 2>&1 && [ -x "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh" ]; then
       AGENTWORKS_HOST_BOOTSTRAP=amazonlinux2 "$ROOT/scripts/e2e/bootstrap-host-amazonlinux2.sh"
-      RUNTIME=lxd
+      RUNTIME=qemu
     else
-      echo "Host Worker pending: this RPM host requires an initialized Incus-compatible runtime. Set AGENTWORKS_LINUX_RUNTIME=lxd after installing LXD, then rerun setup-worker." >&2
+      echo "Host Worker pending: this RPM host requires QEMU/KVM support. Set AGENTWORKS_LINUX_RUNTIME=qemu after installing QEMU/KVM, then rerun setup-worker." >&2
       echo "Agentworks refuses to silently replace VM isolation with containers." >&2
       return 1
     fi
@@ -83,8 +84,11 @@ setup_worker_linux() {
   if [ "$RUNTIME" = "lxd" ] && ! sudo lxc storage list --format csv 2>/dev/null | grep -q .; then
     sudo lxd init --minimal
   fi
+  if [ "$RUNTIME" = "qemu" ] && { ! command -v qemu-system-x86_64 >/dev/null 2>&1 || ! command -v qemu-img >/dev/null 2>&1 || ! command -v genisoimage >/dev/null 2>&1 || [ ! -e /dev/kvm ]; }; then
+    echo "Host Worker pending: QEMU/KVM, genisoimage, and /dev/kvm are required." >&2; return 1
+  fi
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then echo "Host Worker pending: Node.js 16+ is required." >&2; return 1; fi
-  chmod 755 "$ROOT/worker/runtime/incus-limactl"
+  chmod 755 "$ROOT/worker/runtime/incus-limactl" "$ROOT/worker/runtime/qemu-limactl.mjs"
   npm install --prefix "$ROOT/worker" --omit=dev
   AGENTWORKS_ROOT="$ROOT" AGENTWORKS_STATE_DIR="$STATE_DIR" AGENTWORKS_LINUX_RUNTIME="$RUNTIME" node "$ROOT/scripts/install-systemd.mjs"
 }

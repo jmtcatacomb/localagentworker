@@ -7,12 +7,12 @@ if (process.platform !== 'linux') throw new Error('install-systemd.mjs only supp
 const root = path.resolve(process.env.AGENTWORKS_ROOT);
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR);
 const env = Object.fromEntries(fs.readFileSync(path.join(stateDir, 'config/master.env'), 'utf8').split('\n').filter(Boolean).map(line => line.split(/=(.*)/s).slice(0, 2)));
-const runtime = process.env.AGENTWORKS_LINUX_RUNTIME || (commandExists('incus') ? 'incus' : commandExists('lxc') ? 'lxd' : '');
-if (!runtime) throw new Error('Incus/LXD runtime is unavailable; install and initialize it before installing the Worker service');
+const runtime = process.env.AGENTWORKS_LINUX_RUNTIME || (commandExists('incus') ? 'incus' : commandExists('lxc') ? 'lxd' : commandExists('qemu-system-x86_64') ? 'qemu' : '');
+if (!runtime) throw new Error('A supported Linux VM runtime (Incus, LXD, or QEMU/KVM) is unavailable');
 const node = process.execPath;
 const nodeMajor = Number(process.versions.node.split('.')[0] || 0);
 const port = env.MASTER_PORT || '8080';
-const adapter = path.join(root, 'worker/runtime/incus-limactl');
+const adapter = path.join(root, runtime === 'qemu' ? 'worker/runtime/qemu-limactl.mjs' : 'worker/runtime/incus-limactl');
 const lxdForwardingSource = path.join(root, 'worker/runtime/lxd-docker-forwarding.sh');
 const user = process.env.SUDO_USER || process.env.USER || os.userInfo().username;
 const home = os.homedir();
@@ -48,7 +48,7 @@ const environment = {
 };
 const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
-const runtimeGroup = runtime === 'incus' ? 'incus-admin' : 'lxd';
+const runtimeGroup = runtime === 'incus' ? 'incus-admin' : runtime === 'lxd' ? 'lxd' : '';
 let runtimeDependency = '';
 if (runtime === 'lxd') {
   const forwardingTarget = '/usr/local/lib/agentworks/lxd-docker-forwarding';
@@ -64,7 +64,9 @@ if (runtime === 'lxd') {
   runtimeDependency = forwardingUnitName;
 }
 const noNewPrivileges = runtime === 'lxd' ? 'false' : 'true';
-const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service'} ${runtimeDependency}\n${runtimeDependency ? `Requires=${runtimeDependency}\n` : ''}Wants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\nSupplementaryGroups=${runtimeGroup}\nWorkingDirectory=${root}\n${envLines}\nExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus remains hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
+const runtimeAfter = runtime === 'incus' ? 'incus.service' : runtime === 'lxd' ? 'snap.lxd.daemon.service' : '';
+const runtimeGroups = runtimeGroup ? `SupplementaryGroups=${runtimeGroup}\n` : '';
+const unit = `[Unit]\nDescription=Agentworks local host worker\nAfter=network-online.target docker.service ${runtimeAfter} ${runtimeDependency}\n${runtimeDependency ? `Requires=${runtimeDependency}\n` : ''}Wants=network-online.target\n\n[Service]\nType=simple\nUser=${user}\n${runtimeGroups}WorkingDirectory=${root}\n${envLines}\nExecStart=${node} ${path.join(root, 'worker/src/worker.mjs')}\nRestart=always\nRestartSec=5\nTimeoutStopSec=30\n# Snap-packaged LXD requires its confined client to acquire capabilities; Incus/QEMU remain hardened.\nNoNewPrivileges=${noNewPrivileges}\n\n[Install]\nWantedBy=multi-user.target\n`;
 fs.mkdirSync(path.dirname(unitPath), { recursive: true });
 fs.writeFileSync(unitPath, unit, { mode: 0o600 });
 execFileSync('sudo', ['install', '-m', '0644', unitPath, `/etc/systemd/system/${unitName}`], { stdio: 'inherit' });

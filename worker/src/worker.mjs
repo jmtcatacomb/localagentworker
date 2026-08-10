@@ -16,7 +16,9 @@ const workerToken = required('WORKER_TOKEN');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const hostRuntime = process.env.HOST_RUNTIME || (os.platform() === 'darwin' ? 'lima' : 'incus');
 const limaHome = process.env.LIMA_HOME || path.resolve(process.env.AGENTWORKS_STATE_DIR || path.resolve(__dirname, '../..'), 'runtime');
-const limactl = process.env.LIMACTL_BIN || (hostRuntime === 'lima' ? 'limactl' : path.resolve(__dirname, '../runtime/incus-limactl'));
+const limactl = process.env.LIMACTL_BIN || (hostRuntime === 'lima'
+  ? 'limactl'
+  : path.resolve(__dirname, hostRuntime === 'qemu' ? '../runtime/qemu-limactl.mjs' : '../runtime/incus-limactl'));
 const bridgeSource = path.resolve(__dirname, '../bridge/agentworks_bridge.py');
 const adminBridgeSource = path.resolve(__dirname, '../bridge/agentworks_admin_bridge.py');
 const agentworksRoot = path.resolve(process.env.AGENTWORKS_ROOT || path.resolve(__dirname, '../..'));

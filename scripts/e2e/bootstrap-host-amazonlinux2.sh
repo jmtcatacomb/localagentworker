@@ -1,10 +1,11 @@
 #!/bin/sh
 # Minimal Amazon Linux 2 prerequisite bootstrap for the Host Agent E2E.
 #
-# This path preserves VM isolation: it installs Docker/Node and the LXD snap
-# runtime, then lets the normal Linux Worker launch Ubuntu VM instances through
-# KVM.  It intentionally refuses a container fallback when nested
-# virtualization, snapd, or LXD cannot be made available.
+# This path preserves VM isolation: it installs Docker/Node and the native
+# QEMU/KVM prerequisites used by the Linux Worker. Amazon Linux 2 has no
+# supported Incus/LXD package (and its standard repositories omit snapd), so
+# this path intentionally uses a direct KVM adapter rather than a container
+# fallback.
 set -eu
 
 if [ "${AGENTWORKS_HOST_BOOTSTRAP:-}" != "amazonlinux2" ]; then
@@ -27,7 +28,7 @@ command -v docker >/dev/null 2>&1 || need_docker=true
 if [ -f /etc/yum.repos.d/docker-ce.repo ] && command -v yum-config-manager >/dev/null 2>&1; then
   sudo yum-config-manager --disable docker-ce-stable >/dev/null 2>&1 || true
 fi
-sudo yum install -y ca-certificates curl git python3 make gcc-c++ xz
+sudo yum install -y ca-certificates curl git python3 make gcc-c++ xz qemu-kvm qemu-img edk2-ovmf genisoimage openssh-clients
 
 if [ "$need_docker" = true ]; then
   # Docker's CentOS repository substitutes AL2's VERSION_ID ("2") into its
@@ -83,19 +84,9 @@ if [ "$node_major" -lt 16 ]; then
   trap - EXIT
 fi
 
-if ! command -v lxc >/dev/null 2>&1; then
-  # AL2 has no supported Incus package. LXD's documented portable path is
-  # snapd + the LXD snap; fail closed if the host image cannot provide it.
-  sudo yum install -y snapd
-  sudo systemctl enable --now snapd.socket
-  if [ ! -e /snap ]; then sudo ln -s /var/lib/snapd/snap /snap; fi
-  for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    if sudo snap install lxd --channel=5.21/stable; then break; fi
-    [ "$attempt" = 10 ] && { echo "LXD snap installation failed; VM isolation is unavailable on this host." >&2; exit 1; }
-    sleep 3
-  done
-  sudo lxd init --minimal
-fi
-sudo usermod -aG lxd "${SUDO_USER:-$USER}"
+command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "QEMU/KVM installation failed." >&2; exit 1; }
+command -v qemu-img >/dev/null 2>&1 || { echo "qemu-img installation failed." >&2; exit 1; }
+command -v genisoimage >/dev/null 2>&1 || { echo "genisoimage installation failed." >&2; exit 1; }
+test -r /usr/share/edk2/ovmf/OVMF_CODE.fd || { echo "UEFI firmware is unavailable." >&2; exit 1; }
 
-echo "Amazon Linux 2 prerequisites ready. Reconnect SSH before running ./agentworks install so docker/lxd group membership takes effect."
+echo "Amazon Linux 2 prerequisites ready for the QEMU/KVM Worker. Reconnect SSH before running ./agentworks install so Docker group membership takes effect."

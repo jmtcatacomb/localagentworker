@@ -130,6 +130,9 @@ intentionally absent from this MVP.
 
 Ubuntu hosts use the Incus/LXD compatibility adapter and a systemd Worker service
 when the host has an initialized compatible runtime plus `/dev/kvm`; Amazon Linux 2
+uses the direct QEMU/KVM adapter because its standard repositories do not provide a
+supported Incus/LXD runtime. Both paths keep one persistent Ubuntu VM disk per
+tenant; neither substitutes a container for tenant isolation.
 and Windows are probe-gated until their runtime adapter is validated on the target
 hardware. Tenant port approval UI, shared-hostname HTTP routing, and external
 messenger adapters remain backlog items.

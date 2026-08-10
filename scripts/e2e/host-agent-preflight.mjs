@@ -39,14 +39,15 @@ const claude = probe(process.platform === 'win32' ? 'claude.cmd' : 'claude', ['-
 const aws = probe(process.platform === 'win32' ? 'aws.exe' : 'aws', ['--version']);
 const incus = probe('incus', ['version']);
 const lxd = probe('lxc', ['version']);
+const qemu = probe('qemu-system-x86_64', ['--version']);
 const kvm = process.platform === 'linux' ? fs.existsSync('/dev/kvm') : false;
 
 const runtime = osFamily === 'macos'
   ? state(commandExists('limactl') ? 'supported' : 'blocked', commandExists('limactl') ? 'Lima detected' : 'Lima is required by the current macOS Worker')
   : osFamily === 'linux'
-    ? state((incus.available || lxd.available) && kvm ? 'supported' : 'blocked', (incus.available || lxd.available) && kvm
-      ? `${incus.available ? 'Incus' : 'LXD'} and /dev/kvm detected`
-      : `${!kvm ? '/dev/kvm is unavailable; VM isolation requires nested virtualization or bare metal' : 'Install and initialize Incus or LXD before provisioning tenants'}`)
+    ? state((incus.available || lxd.available || qemu.available) && kvm ? 'supported' : 'blocked', (incus.available || lxd.available || qemu.available) && kvm
+      ? `${incus.available ? 'Incus' : lxd.available ? 'LXD' : 'QEMU/KVM'} and /dev/kvm detected`
+      : `${!kvm ? '/dev/kvm is unavailable; VM isolation requires nested virtualization or bare metal' : 'Install and initialize Incus, LXD, or QEMU/KVM before provisioning tenants'}`)
     : state('blocked', `${osFamily} Worker adapter is not implemented; probe a Hyper-V/WSL2 runtime before provisioning`);
 
 const checks = [

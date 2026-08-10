@@ -109,6 +109,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const installer = fs.readFileSync('agentworks', 'utf8');
   const systemd = fs.readFileSync('scripts/install-systemd.mjs', 'utf8');
   const adapter = fs.readFileSync('worker/runtime/incus_lima_compat.mjs', 'utf8');
+  const qemuAdapter = fs.readFileSync('worker/runtime/qemu-limactl.mjs', 'utf8');
   const preflight = fs.readFileSync('scripts/e2e/host-agent-preflight.mjs', 'utf8');
   const awsPlan = fs.readFileSync('scripts/e2e/aws-plan.mjs', 'utf8');
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
@@ -141,7 +142,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(amazonLinuxBootstrap, /nodejs\.org\/dist/);
   assert.match(amazonLinuxBootstrap, /Node 16\.20\.2/);
   assert.match(amazonLinuxBootstrap, /--experimental-fetch/);
-  assert.match(amazonLinuxBootstrap, /snap install lxd/);
+  assert.match(amazonLinuxBootstrap, /qemu-kvm/);
+  assert.match(amazonLinuxBootstrap, /genisoimage/);
   assert.match(amazonLinuxBootstrap, /\/dev\/kvm/);
   assert.match(installer, /lxc storage list --format csv/);
   assert.match(installer, /lxd init --minimal/);
@@ -157,6 +159,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(adapter, /AGENTWORKS_GUEST_HOME/);
   assert.match(adapter, /guestPath/);
   assert.match(adapter, /--user/);
+  assert.match(qemuAdapter, /qemu-system-x86_64/);
+  assert.match(qemuAdapter, /hostfwd=tcp:127\.0\.0\.1/);
+  assert.match(qemuAdapter, /sshReady/);
 });
 
 test('Claude-only bootstrap uses protected host state rather than Git or service environment', () => {
