@@ -272,13 +272,18 @@ test('AgentSlack wake bindings keep tokens in Worker state and ACK only after ex
   assert.match(adapter, /agentworks_worker_not_registered/);
   assert.match(adapter, /'agentslack', 'bindings\.json'/);
   const sync = fs.readFileSync('scripts/sync-agentslack.mjs', 'utf8');
+  const smoke = fs.readFileSync('scripts/e2e/agentslack-binding-smoke.mjs', 'utf8');
   assert.doesNotMatch(sync, /import\.meta\.dirname/);
   assert.match(sync, /archived_at IS NULL/);
   assert.match(sync, /identityMode: 'host_verified'/);
   assert.match(sync, /mode: 0o600/);
+  assert.match(sync, /'cellId',c\.id/);
   assert.match(sync, /installationNamespace/);
   assert.match(sync, /409 handle_already_exists/);
   assert.match(sync, /AgentSlack register/);
+  assert.match(smoke, /stoppedVmWake/);
+  assert.match(smoke, /\/api\/v1\/wiki/);
+  assert.match(smoke, /references\/resolve/);
   assert.match(adapter, /auto_ack=false/);
   assert.match(adapter, /inbox\/ack/);
   assert.doesNotMatch(server, /AGENTSLACK_(?:TOKEN|BEARER|SECRET)/);

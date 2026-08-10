@@ -55,7 +55,7 @@ function compose(args) {
 function sessions() {
   const sql = `SELECT json_build_object(
     'sessionUuid',s.session_uuid,'alias',s.alias,'harness',s.harness,
-    'model',s.model,'cwd',s.cwd,'runtimeName',c.runtime_name,'tenantSlug',t.slug
+    'model',s.model,'cwd',s.cwd,'cellId',c.id,'runtimeName',c.runtime_name,'tenantSlug',t.slug
   ) FROM agent_sessions s JOIN cells c ON c.id=s.cell_id
   JOIN tenants t ON t.id=s.tenant_id
   WHERE s.archived_at IS NULL ORDER BY t.slug,s.created_at`;
@@ -142,6 +142,8 @@ async function register(session, handle) {
     id: handle,
     handle,
     targetSessionUuid: session.sessionUuid,
+    cellId: session.cellId,
+    runtimeName: session.runtimeName,
     serverUrl: control.serverUrl,
     serverSlug: control.serverSlug,
     token: body.token,
@@ -157,7 +159,7 @@ const results = [];
 for (const session of sessions()) {
   const current = byTarget.get(session.sessionUuid);
   if (current && await bindingValid(current)) {
-    next.push(current);
+    next.push({ ...current, cellId: session.cellId, runtimeName: session.runtimeName });
     results.push({ sessionUuid: session.sessionUuid, handle: current.handle || current.id, action: 'preserved' });
     continue;
   }
