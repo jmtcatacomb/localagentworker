@@ -88,5 +88,15 @@ command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "QEMU/KVM installation f
 command -v qemu-img >/dev/null 2>&1 || { echo "qemu-img installation failed." >&2; exit 1; }
 command -v genisoimage >/dev/null 2>&1 || { echo "genisoimage installation failed." >&2; exit 1; }
 test -r /usr/share/edk2/ovmf/OVMF_CODE.fd || { echo "UEFI firmware is unavailable." >&2; exit 1; }
+# AL2 exposes /dev/kvm as root:root on a fresh EC2 instance.  The Worker runs
+# as the installing user, so make this standard device group persistent across
+# reboot and put that user in it; do not run the whole Worker as root.
+sudo groupadd -f kvm
+printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0660"' | sudo tee /etc/udev/rules.d/99-agentworks-kvm.rules >/dev/null
+sudo udevadm control --reload-rules || true
+sudo udevadm trigger --name-match=kvm || true
+sudo chgrp kvm /dev/kvm
+sudo chmod 0660 /dev/kvm
+sudo usermod -aG kvm "${SUDO_USER:-$USER}"
 
-echo "Amazon Linux 2 prerequisites ready for the QEMU/KVM Worker. Reconnect SSH before running ./agentworks install so Docker group membership takes effect."
+echo "Amazon Linux 2 prerequisites ready for the QEMU/KVM Worker. Reconnect SSH before running ./agentworks install so Docker/KVM group membership takes effect."

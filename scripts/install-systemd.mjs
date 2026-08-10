@@ -48,7 +48,7 @@ const environment = {
 };
 const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
-const runtimeGroup = runtime === 'incus' ? 'incus-admin' : runtime === 'lxd' ? 'lxd' : '';
+const runtimeGroup = runtime === 'incus' ? 'incus-admin' : runtime === 'lxd' ? 'lxd' : runtime === 'qemu' ? 'kvm' : '';
 let runtimeDependency = '';
 if (runtime === 'lxd') {
   const forwardingTarget = '/usr/local/lib/agentworks/lxd-docker-forwarding';
