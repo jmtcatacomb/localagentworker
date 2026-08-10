@@ -1340,6 +1340,19 @@ async function installBridgeUnlocked(cell) {
   await run(limactl, ['copy', bridgeSource, `${name}:${stagingPath}`], { quiet: true });
   const script = String.raw`
 set -e
+# Git for Windows commonly checks text files out with CRLF and an existing
+# checkout may also carry a UTF-8 BOM.  The bridge is executed directly, so
+# normalize its shebang before installing it in the Linux guest.
+python3 - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+data = path.read_bytes()
+if data.startswith(b"\xef\xbb\xbf"):
+    data = data[3:]
+path.write_bytes(data.replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+PY
 install -m 0755 "$1" "$HOME/.local/bin/agentworks-bridge"
 rm -f "$1"
 export PATH="$HOME/.local/bin:$PATH"
