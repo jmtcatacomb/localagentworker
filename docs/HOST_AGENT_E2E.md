@@ -85,9 +85,12 @@ The current Agentworks codebase supports the reference environment only:
 | macOS | Docker Compose | Lima VZ | reference implementation |
 | Ubuntu 24.04+ | Docker Compose | Incus VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed; live Claude auth turn pending valid setup token |
 | Amazon Linux 2 | Docker Compose | direct QEMU/KVM VM adapter + systemd service | VM/CLI/MCP/central-port E2E completed and host stopped |
-| Windows Server | Linux-container Docker engine | Hyper-V VM adapter + scheduled native Worker | adapter implemented; clean-host E2E pending |
+| Windows Server 2025 | WSL2 Docker Compose | Hyper-V VM adapter + SYSTEM scheduled Worker | clean-host E2E completed: 3 tenant VMs, Claude + Master sessions, stopped-VM wake, AgentSlack exact-session ACK, approved external HTTP route and revoke |
 
-Thus a three-OS E2E must not claim success today. Windows still requires a clean-host
+Thus a three-OS E2E must not claim success yet. Ubuntu still requires its live Claude
+turn to be repeated with the current protected OAuth credential. Windows completed its clean-host
+run on 2026-08-10; the instance was stopped rather than terminated after evidence capture. Windows required a WSL2
+Master plus a host-native SYSTEM Worker, and tenant isolation used Hyper-V Generation-2 VMs.
 Hyper-V validation and all OSes require a valid Claude CLI setup token for live agent
 turns. A Linux Docker-only install without a VM runtime and `/dev/kvm` is rejected
 rather than silently degrading tenant VMs into containers.
