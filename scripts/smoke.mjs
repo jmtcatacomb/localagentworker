@@ -13,7 +13,10 @@ if (!health.ok || health.workers < 1) throw new Error('Master or Worker is not h
 
 const adminCookie = await login(process.env.MASTER_EMAIL, process.env.MASTER_PASSWORD);
 const admin = await fetch(`${base}/api/overview`, { headers: { cookie: adminCookie } }).then(response => response.json());
-if (admin.user.role !== 'superadmin' || admin.cells.length !== 2) throw new Error('superadmin scope mismatch');
+const adminTenantSlugs = new Set(admin.cells.map(cell => cell.tenant_slug));
+if (admin.user.role !== 'superadmin' || !adminTenantSlugs.has('alpha') || !adminTenantSlugs.has('beta')) {
+  throw new Error('superadmin scope mismatch');
+}
 
 const tenantCookie = await login(process.env.TENANT_ALPHA_EMAIL, process.env.TENANT_ALPHA_PASSWORD);
 const tenant = await fetch(`${base}/api/overview`, { headers: { cookie: tenantCookie } }).then(response => response.json());

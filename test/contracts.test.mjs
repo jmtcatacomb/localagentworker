@@ -98,11 +98,14 @@ test('Master Agent is a first-class system session with audited admin capabiliti
 test('superadmin can create a tenant cell without exposing its initial password to audit data', () => {
   const server = fs.readFileSync('master/src/server.mjs', 'utf8');
   const ui = fs.readFileSync('master/public/app.js', 'utf8');
+  const smoke = fs.readFileSync('scripts/smoke.mjs', 'utf8');
   assert.match(server, /app\.post\('\/api\/admin\/tenants'/);
   assert.match(server, /tenant\.create/);
   assert.match(server, /bcrypt\.hash\(password/);
   assert.doesNotMatch(server, /ownerEmail: email, password/);
   assert.match(ui, /id="tenant-create"/);
+  assert.match(smoke, /adminTenantSlugs\.has\('alpha'\)/);
+  assert.doesNotMatch(smoke, /admin\.cells\.length !== 2/);
 });
 
 test('Linux host adapter preserves the Worker command boundary and requires VM hardware support', () => {
