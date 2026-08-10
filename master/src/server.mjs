@@ -70,6 +70,7 @@ app.post('/api/internal/master-agent/claude-turn', requireUser, async (req, res)
   const model = String(req.body?.model || 'haiku').trim();
   const effort = String(req.body?.effort || '').trim();
   const sessionId = String(req.body?.sessionId || '').trim();
+  const resume = Boolean(req.body?.resume);
   if (!prompt || prompt.length > 100_000 || !/^[a-z0-9._-]{1,120}$/i.test(model) || !/^[0-9a-f-]{36}$/i.test(sessionId)) return res.status(400).json({ error: 'Invalid master Claude turn.' });
   const credentialPath = path.join(process.env.MASTER_AGENT_HOME || '/master-agent-home', '.agentworks/secrets/claude-oauth-token');
   let oauthToken = '';
@@ -79,19 +80,27 @@ app.post('/api/internal/master-agent/claude-turn', requireUser, async (req, res)
   // Master container is root-owned but has no Docker socket or host mount, so
   // retain Claude's normal CLI permission policy here; privileged VM actions
   // still go through audited typed Master APIs.
-  const args = ['-p', prompt, '--append-system-prompt', systemPrompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model, '--session-id', sessionId];
-  if (effort) args.push('--effort', effort);
-  let stdout = ''; let stderr = '';
-  const child = spawn('claude', args, { cwd: process.env.MASTER_AGENT_WORKSPACE || '/workspace/agentworks', env: { ...process.env, HOME: process.env.MASTER_AGENT_HOME || '/master-agent-home', CLAUDE_CODE_OAUTH_TOKEN: oauthToken }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', data => { stdout += data; });
-  child.stderr.on('data', data => { stderr = (stderr + data).slice(-4000); });
-  child.on('error', error => res.status(500).json({ error: error.message }));
-  child.on('close', code => {
-    if (code !== 0) return res.status(502).json({ error: `Master Claude exited ${code}: ${stderr.trim().slice(-1200)}` });
-    let answer = '';
-    for (const line of stdout.split('\n')) { try { const event = JSON.parse(line); if (event.type === 'result' && typeof event.result === 'string') answer = event.result; } catch {} }
-    res.json({ answer, nativeSessionId: sessionId, telemetry: {}, usage: {} });
+  const execute = (nativeId, shouldResume) => new Promise(resolve => {
+    const args = ['-p', prompt, '--append-system-prompt', systemPrompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model];
+    if (effort) args.push('--effort', effort);
+    args.push(shouldResume ? '--resume' : '--session-id', nativeId);
+    let stdout = ''; let stderr = '';
+    const child = spawn('claude', args, { cwd: process.env.MASTER_AGENT_WORKSPACE || '/workspace/agentworks', env: { ...process.env, HOME: process.env.MASTER_AGENT_HOME || '/master-agent-home', CLAUDE_CODE_OAUTH_TOKEN: oauthToken }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', data => { stdout += data; });
+    child.stderr.on('data', data => { stderr = (stderr + data).slice(-4000); });
+    child.on('error', error => resolve({ code: -1, stdout, stderr: error.message }));
+    child.on('close', code => resolve({ code, stdout, stderr }));
   });
+  let nativeSessionId = sessionId;
+  let result = await execute(nativeSessionId, resume);
+  if (result.code !== 0 && resume && /no conversation found with session id/i.test(result.stderr)) {
+    nativeSessionId = crypto.randomUUID();
+    result = await execute(nativeSessionId, false);
+  }
+  if (result.code !== 0) return res.status(502).json({ error: `Master Claude exited ${result.code}: ${result.stderr.trim().slice(-1200)}` });
+  let answer = '';
+  for (const line of result.stdout.split('\n')) { try { const event = JSON.parse(line); if (event.type === 'result' && typeof event.result === 'string') answer = event.result; } catch {} }
+  res.json({ answer, nativeSessionId, telemetry: {}, usage: {} });
 });
 
 app.post('/api/login', async (req, res) => {

@@ -302,7 +302,14 @@ async function runSessionTurn(cell, payload, emit = () => {}) {
       await syncClaudeOauthToMasterHome();
       const response = await fetch(`${masterAgentUrl}/api/internal/master-agent/claude-turn`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'X-Agentworks-Master-Token': masterAgentToken },
-        body: JSON.stringify({ prompt: payload.prompt, systemPrompt: await sessionRuntimeInstructionsWindowsMaster(payload), model: payload.model, effort: payload.effort, sessionId: payload.nativeSessionId || payload.sessionUuid }),
+        body: JSON.stringify({
+          prompt: payload.prompt,
+          systemPrompt: await sessionRuntimeInstructionsWindowsMaster(payload),
+          model: payload.model,
+          effort: payload.effort,
+          sessionId: payload.nativeSessionId || payload.sessionUuid,
+          resume: Boolean(payload.nativeSessionId),
+        }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Master Claude turn failed');
