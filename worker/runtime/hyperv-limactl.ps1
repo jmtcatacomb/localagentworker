@@ -104,7 +104,12 @@ if ($command -eq 'create') {
   $name=Opt '--name'; if(!(Valid-Name $name)){Fail 'create requires a lowercase runtime name'}; if((Read-Meta $name)){exit 0}; Require-HyperV
   $dir=Instance-Dir $name; if(Test-Path $dir){Remove-Item -Recurse -Force $dir}; New-Item -ItemType Directory -Force $dir | Out-Null
   $cpus=[Math]::Max(1,[int](Opt '--cpus')); $memoryGiB=[Math]::Max(1,[int](Opt '--memory')); $diskGiB=[Math]::Max(8,[int](Opt '--disk'))
-  $key=Join-Path $dir 'id_ed25519'; & ssh-keygen.exe -q -t ed25519 -N '' -f $key; if($LASTEXITCODE -ne 0){Fail 'ssh-keygen failed'}
+  $key=Join-Path $dir 'id_ed25519'
+  # Windows PowerShell drops a direct empty native argument. Start-Process
+  # preserves ssh-keygen's required quoted empty passphrase value.
+  $emptyQuoted=([char]34).ToString()+([char]34).ToString()
+  $keygen=Start-Process -FilePath ssh-keygen.exe -ArgumentList @('-q','-t','ed25519','-N',$emptyQuoted,'-f',$key) -Wait -PassThru -NoNewWindow
+  if($keygen.ExitCode -ne 0){Fail 'ssh-keygen failed'}
   Write-SeedIso $dir ((Get-Content -Raw "$key.pub").Trim()); $base=Ensure-BaseImage; $disk=Join-Path $dir 'disk.vhdx'; New-VHD -Path $disk -ParentPath $base -Differencing | Out-Null
   $switch=(Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue); if(!$switch){Fail 'Hyper-V Default Switch is unavailable'}
   $vm=New-VM -Name (Vm-Name $name) -Generation 1 -MemoryStartupBytes ($memoryGiB*1GB) -VHDPath $disk -Path $dir -SwitchName $switch.Name
