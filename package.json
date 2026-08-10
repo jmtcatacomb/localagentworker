@@ -5,7 +5,9 @@
   "description": "Self-hosted multi-tenant coding agent control plane",
   "scripts": {
     "e2e:host-preflight": "node scripts/e2e/host-agent-preflight.mjs",
+    "e2e:host-preflight:ssm": "bash scripts/e2e/with-foragents-ssm.sh node scripts/e2e/host-agent-preflight.mjs",
     "e2e:aws-plan": "node scripts/e2e/aws-plan.mjs",
+    "e2e:aws-plan:ssm": "bash scripts/e2e/with-foragents-ssm.sh node scripts/e2e/aws-plan.mjs",
     "e2e:aws-ubuntu-launch": "node scripts/e2e/aws-ubuntu-launch.mjs",
     "e2e:aws-windows-launch": "node scripts/e2e/aws-windows-launch.mjs",
     "e2e:release-gate": "node scripts/e2e/release-gate.mjs",

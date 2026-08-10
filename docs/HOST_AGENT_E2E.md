@@ -5,17 +5,20 @@ not a “run arbitrary commands as root until it works” prompt. The Host Agent
 first probe the host, create a reviewable plan, obtain the approvals listed below,
 apply typed adapters, and preserve redacted evidence.
 
-Run the read-only gate first:
+Run the read-only gate through the canonical secret bootstrap first:
 
 ```sh
-node scripts/e2e/host-agent-preflight.mjs
-npm run e2e:aws-plan
+npm run e2e:host-preflight:ssm
+npm run e2e:aws-plan:ssm
 npm run e2e:release-gate
 ```
 
-`AGENTSLACK_ROOT` may point to a local AgentSlack clone. The script never reads
-`authinfo.md`, writes cloud state, logs credentials, installs packages, or creates
-an EC2 instance. A non-zero exit means the host must not be provisioned.
+`AGENTSLACK_ROOT` may point to a local AgentSlack clone. The wrapper discovers
+`FORAGENTS_README`, uses its fixed SSM reader only to resolve the catalogued
+operational AWS credential, and passes it in child-process environment variables.
+It never uses macOS Keychain, writes `~/.aws`, reads `authinfo.md`, logs
+credentials, installs packages, or creates an EC2 instance. A non-zero exit means
+the host must not be provisioned.
 
 `e2e:aws-plan` is also read-only. It discovers the default VPC/subnet, official
 public AMI parameters, a nested-virtualization capable instance offering, and the
@@ -106,10 +109,10 @@ The following cannot safely be inferred by the agent:
 6. Claude OAuth delivery mechanism. It must be supplied only to the target host at
    runtime (for example a short-lived, scoped secret reference), never via Git,
    launch arguments, EC2 user-data, or captured test logs.
-7. AgentSlack scope. `toomuch` is an existing private deployment and explicitly
-   forbids deployment changes. `agentworktest` is a logical Server within that
-   existing deployment: create it with a `toomuch` Server admin identity, then
-   give Agentworks its own identities and per-session registries.
+7. AgentSlack scope is fixed: use the existing private deployment and its
+   `agentworktest` logical Server. Do not create a second stack. The control-plane
+   admin repairs/bootstrap this logical Server and Agentworks keeps isolated
+   per-session identities in ignored mode-0600 Worker state.
 
 ## Target architecture after adapters exist
 

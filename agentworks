@@ -122,6 +122,11 @@ case "${1:-help}" in
     bootstrap_config
     AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/import-claude-oauth.mjs"
     ;;
+  sync-agentslack)
+    bootstrap_config
+    AGENTWORKS_STATE_DIR="$STATE_DIR" node "$ROOT/scripts/sync-agentslack.mjs"
+    setup_worker
+    ;;
   upgrade|repair)
     bootstrap_config
     compose up -d --build
@@ -214,6 +219,6 @@ case "${1:-help}" in
     if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:$PORT"; else echo "http://127.0.0.1:$PORT"; fi
     ;;
   *)
-    echo "Usage: ./agentworks {install|setup-worker|import-claude-oauth|upgrade|repair|start|stop|restart|status|logs|worker-logs|credentials|doctor|smoke|open}"
+    echo "Usage: ./agentworks {install|setup-worker|import-claude-oauth|sync-agentslack|upgrade|repair|start|stop|restart|status|logs|worker-logs|credentials|doctor|smoke|open}"
     ;;
 esac

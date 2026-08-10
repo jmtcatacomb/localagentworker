@@ -32,11 +32,18 @@ const agentworksRoot = path.resolve(process.env.AGENTWORKS_ROOT || path.resolve(
 const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(agentworksRoot, '.agentworks'));
 const masterAgentHome = path.join(stateDir, 'master-agent-home');
 const claudeOauthTokenFile = path.resolve(process.env.CLAUDE_OAUTH_TOKEN_FILE || path.join(stateDir, 'secrets', 'claude-oauth-token'));
-const guestHome = process.env.AGENTWORKS_GUEST_HOME || '/home/ubuntu';
-// `limactl shell` is intentionally non-interactive.  Do not depend on a
-// guest's profile to place ~/.local/bin on PATH (notably true for Hyper-V's
-// SSH adapter); the MCP registration itself still uses this same executable.
-const guestBridgeCommand = path.posix.join(guestHome, '.local/bin', 'agentworks-bridge');
+// Guest account names are runtime/image dependent (`ubuntu`, `zo.guest`, a
+// Windows-provisioned SSH user, ...). Resolve the bridge through the guest's
+// own HOME on every invocation instead of assuming an image-specific path.
+// `bash -lc` also avoids depending on ~/.local/bin being present in the
+// non-interactive SSH PATH used by Lima/Incus/Hyper-V adapters.
+function guestBridgeArgs(runtimeName, ...args) {
+  return [
+    'shell', '-y', runtimeName, 'bash', '-lc',
+    'exec "$HOME/.local/bin/agentworks-bridge" "$@"',
+    'agentworks-bridge', ...args,
+  ];
+}
 const masterAgentUrl = process.env.MASTER_AGENT_URL || masterUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/ws\/worker.*$/, '');
 const masterAgentToken = required('MASTER_AGENT_TOKEN');
 const autoCells = (process.env.AUTO_CELLS || '').split(',').map(value => value.trim()).filter(Boolean);
@@ -57,6 +64,7 @@ let heartbeatTimer;
 let autoProvisionStarted = false;
 let bridgeScanTimer;
 let agentSlackAdapter;
+let masterRegistered = false;
 
 connect();
 
@@ -67,6 +75,7 @@ function connect() {
   socket = new WebSocket(url);
 
   socket.on('open', async () => {
+    masterRegistered = false;
     send({
       type: 'register',
       workerId,
@@ -80,18 +89,11 @@ function connect() {
     clearInterval(bridgeScanTimer);
     bridgeScanTimer = setInterval(() => scanBridgeOutboxes().catch(error => console.error('bridge outbox scan:', error.message)), 5000);
     void scanBridgeOutboxes();
-    if (!agentSlackAdapter) {
-      agentSlackAdapter = new AgentSlackDeliveryAdapter({
-        stateDir,
-        workerId,
-        submit: payload => send({ type: 'agentslack.delivery', ...payload }),
-      });
-      agentSlackAdapter.start().catch(error => console.error(`AgentSlack adapter: ${error.message}`));
-    }
   });
 
   socket.on('message', raw => handleMessage(JSON.parse(raw.toString())).catch(error => console.error(error)));
   socket.on('close', () => {
+    masterRegistered = false;
     clearInterval(heartbeatTimer);
     clearInterval(bridgeScanTimer);
     reconnectTimer = setTimeout(connect, 3000);
@@ -100,13 +102,26 @@ function connect() {
 }
 
 async function handleMessage(message) {
-  if (message.type === 'registered' && !autoProvisionStarted && process.env.AUTO_PROVISION === 'true') {
-    autoProvisionStarted = true;
-    provisionDemoCells().catch(error => console.error('automatic provisioning failed', error));
+  if (message.type === 'registered') {
+    masterRegistered = true;
+    if (!agentSlackAdapter) {
+      agentSlackAdapter = new AgentSlackDeliveryAdapter({
+        stateDir,
+        workerId,
+        ready: () => masterRegistered && socket?.readyState === WebSocket.OPEN,
+        submit: payload => send({ type: 'agentslack.delivery', ...payload }),
+      });
+      agentSlackAdapter.start().catch(error => console.error(`AgentSlack adapter: ${error.message}`));
+    }
+    if (!autoProvisionStarted && process.env.AUTO_PROVISION === 'true') {
+      autoProvisionStarted = true;
+      provisionDemoCells().catch(error => console.error('automatic provisioning failed', error));
+    }
     return;
   }
   if (message.type === 'bridge.outbox.ack') return acknowledgeBridgeOutbox(message);
   if (message.type === 'agentslack.delivery.accepted') return agentSlackAdapter?.accepted(message);
+  if (message.type === 'agentslack.delivery.rejected') return agentSlackAdapter?.rejected(message);
   if (message.type === 'agentslack.delivery.ack') return agentSlackAdapter?.acknowledge(message);
   if (message.type === 'command') {
     try {
@@ -402,11 +417,11 @@ async function sessionRuntimeInstructions(cell, payload) {
     if (response.ok) directory = await response.json();
   } else {
     try {
-      const result = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'list-known'], { timeoutMs: 15_000, quiet: true });
+      const result = await run(limactl, guestBridgeArgs(cell.runtime_name, 'list-known'), { timeoutMs: 15_000, quiet: true });
       directory = JSON.parse(result.stdout.trim() || '{}');
     } catch {
       await installBridge(cell);
-      const result = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'list-known'], { timeoutMs: 15_000, quiet: true });
+      const result = await run(limactl, guestBridgeArgs(cell.runtime_name, 'list-known'), { timeoutMs: 15_000, quiet: true });
       directory = JSON.parse(result.stdout.trim() || '{}');
     }
   }
@@ -452,12 +467,12 @@ async function wakeSession(cell, payload) {
   const envelope = payload.envelope || {};
   const messageId = String(envelope.messageId || '');
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw new Error('Invalid inter-session message id');
-  const cached = await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'delivery-get', messageId], { quiet: true });
+  const cached = await run(limactl, guestBridgeArgs(cell.runtime_name, 'delivery-get', messageId), { quiet: true });
   const cachedValue = JSON.parse(cached.stdout.trim() || '{}');
   if (cachedValue.found && cachedValue.result) return { ...cachedValue.result, deduplicated: true };
   const prompt = interSessionPrompt(payload);
   const result = await runSessionTurn(cell, { ...payload, prompt });
-  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'delivery-record', messageId], {
+  await run(limactl, guestBridgeArgs(cell.runtime_name, 'delivery-record', messageId), {
     input: JSON.stringify(result), quiet: true,
   });
   return result;
@@ -1345,7 +1360,7 @@ async function syncBridgeDirectory(cell, directory) {
   await startCell(cell);
   await installBridge(cell);
   const input = JSON.stringify({ ...directory, capturedAt: new Date().toISOString() });
-  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'sync-directory'], { input, quiet: true });
+  await run(limactl, guestBridgeArgs(cell.runtime_name, 'sync-directory'), { input, quiet: true });
   return { synced: true, count: directory.sessions?.length || 0 };
 }
 
@@ -1362,7 +1377,7 @@ async function storeBridgeReceipt(cell, payload) {
   await installBridge(cell);
   const messageId = String(payload.messageId || '');
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) throw new Error('Invalid bridge receipt message id');
-  await run(limactl, ['shell', '-y', cell.runtime_name, guestBridgeCommand, 'receipt', messageId], {
+  await run(limactl, guestBridgeArgs(cell.runtime_name, 'receipt', messageId), {
     input: JSON.stringify(payload), quiet: true,
   });
   return { stored: true, messageId };
@@ -1374,7 +1389,7 @@ async function scanBridgeOutboxes() {
   for (const instance of instances.filter(item => normalizeState(item.status) === 'running')) {
     let payloads;
     try {
-      const { stdout } = await run(limactl, ['shell', '-y', instance.name, guestBridgeCommand, 'outbox-list'], { timeoutMs: 15_000, quiet: true });
+      const { stdout } = await run(limactl, guestBridgeArgs(instance.name, 'outbox-list'), { timeoutMs: 15_000, quiet: true });
       payloads = JSON.parse(stdout.trim() || '[]');
     } catch { continue; }
     for (const payload of Array.isArray(payloads) ? payloads : []) {
@@ -1392,7 +1407,7 @@ async function acknowledgeBridgeOutbox(message) {
   const outboxId = String(message.outboxId || '');
   if (!autoCells.includes(runtimeName) || !/^[0-9a-f-]{36}$/i.test(outboxId)) return;
   try {
-    await run(limactl, ['shell', '-y', runtimeName, guestBridgeCommand, 'outbox-ack', outboxId], { timeoutMs: 15_000, quiet: true });
+    await run(limactl, guestBridgeArgs(runtimeName, 'outbox-ack', outboxId), { timeoutMs: 15_000, quiet: true });
   } finally { outboxInFlight.delete(`${runtimeName}:${outboxId}`); }
 }
 
@@ -1490,7 +1505,9 @@ function capabilities() {
 }
 
 function send(message) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify(message));
+  return true;
 }
 
 function normalizeState(value) {

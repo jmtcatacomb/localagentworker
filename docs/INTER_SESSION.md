@@ -120,3 +120,15 @@ after the target native turn acknowledges, the Master sends a receipt to the sam
 Worker and only then does it call AgentSlack `inbox/ack`. Thus Worker/VM/Master
 restart leaves the central delivery pending and recoverable without storing an
 AgentSlack token in PostgreSQL, the Docker Master, audit rows, or Git.
+
+After the control-plane administrator has provisioned the logical Server and
+stored its protected connection credential, synchronize every active Agentworks
+session and restart the Worker with:
+
+```sh
+./agentworks sync-agentslack
+```
+
+The command preserves every still-valid per-session identity, registers only
+missing or invalid bindings, writes the binding file atomically as mode `0600`,
+and never copies its tokens into the Master container or PostgreSQL.

@@ -2,9 +2,9 @@
 /**
  * Read-only host capability report for the Agentworks cloud E2E harness.
  *
- * It intentionally does not read authinfo.md, create cloud resources, install
- * packages, or modify the host. Secrets must be injected by the invoking
- * host-agent through its secret store / process environment, never a repo file.
+ * It never reads authinfo.md, creates cloud resources, installs packages, or
+ * modifies the host. The normal invoker is with-foragents-ssm.sh, which resolves
+ * process-scoped credentials from the canonical FORAGENTS README -> SSM entry.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,6 +13,8 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
 const agentSlackRoot = process.env.AGENTSLACK_ROOT || '/Users/zo/Projects/expsite/agentslack';
+const stateDir = path.resolve(process.env.AGENTWORKS_STATE_DIR || path.join(root, '.agentworks'));
+const protectedClaudeToken = path.join(stateDir, 'secrets', 'claude-oauth-token');
 
 function probe(command, args = []) {
   try {
@@ -63,8 +65,8 @@ const checks = [
   { id: 'runtime-adapter', required: true, ...runtime },
   ...(osFamily === 'linux' ? [{ id: 'kvm', required: true, ...state(kvm ? 'pass' : 'blocked', kvm ? '/dev/kvm is available for tenant VMs' : 'Enable nested virtualization or use a bare-metal host before creating tenant VMs') }] : []),
   { id: 'agentslack-source', required: true, ...state(fs.existsSync(agentSlackRoot) ? 'pass' : 'blocked', fs.existsSync(agentSlackRoot) ? agentSlackRoot : `Set AGENTSLACK_ROOT to a local AgentSlack clone; looked for ${agentSlackRoot}`) },
-  { id: 'aws-credentials', required: true, ...state(process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || process.env.AWS_WEB_IDENTITY_TOKEN_FILE ? 'present-unverified' : 'action-required', 'Provide AWS credentials at runtime through a profile, instance role, or secret store. This script never reads authinfo.md.') },
-  { id: 'claude-auth', required: true, ...state(process.env.AGENTWORKS_CLAUDE_OAUTH_TOKEN ? 'present-unverified' : 'action-required', 'Inject a Claude OAuth credential into the host-agent secret channel at runtime; do not use EC2 user-data or Git.') },
+  { id: 'aws-credentials', required: true, ...state(process.env.AWS_ACCESS_KEY_ID || process.env.AWS_WEB_IDENTITY_TOKEN_FILE ? 'present-unverified' : 'action-required', process.env.AGENTWORKS_CREDENTIAL_SOURCE === 'foragents-ssm' ? 'FORAGENTS README -> SSM process credential is present; no profile or Keychain was written.' : 'Run npm run e2e:host-preflight:ssm or inject a workload identity at runtime.') },
+  { id: 'claude-auth', required: true, ...state(process.env.AGENTWORKS_CLAUDE_OAUTH_TOKEN || fs.existsSync(protectedClaudeToken) ? 'present-unverified' : 'action-required', fs.existsSync(protectedClaudeToken) ? 'Protected Agentworks host-state credential is present; its value was not read or rendered.' : 'Inject a Claude OAuth credential into the protected host-agent secret channel at runtime; do not use EC2 user-data, Keychain, or Git.') },
 ];
 
 const report = {
@@ -79,7 +81,7 @@ const report = {
     'Whether AM2 means Amazon Linux 2, and the Windows instance/runtime choice.',
     'A scoped security-group source CIDR for the public tenant-port probe.',
     'Whether the three stopped instances are retained (EBS cost continues) or terminated after evidence capture.',
-    'A private AgentSlack deployment profile for the new agentworktest Server; toomuch is connect-existing only.',
+    'Use the existing AgentSlack deployment and its agentworktest logical Server; do not create another stack.',
   ],
   nextStep: runtime.status === 'supported'
     ? 'A macOS reference run can be attempted after the required decisions and runtime credentials are supplied.'

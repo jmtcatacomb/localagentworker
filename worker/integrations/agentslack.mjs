@@ -30,10 +30,11 @@ function redactBinding(binding) {
 }
 
 export class AgentSlackDeliveryAdapter {
-  constructor({ stateDir, workerId, submit }) {
+  constructor({ stateDir, workerId, submit, ready = () => true }) {
     this.file = path.join(stateDir, 'agentslack', 'bindings.json');
     this.workerId = workerId;
     this.submit = submit;
+    this.ready = ready;
     this.bindings = new Map();
     this.active = new Map();
     this.running = false;
@@ -42,7 +43,18 @@ export class AgentSlackDeliveryAdapter {
   async start() {
     this.running = true;
     await this.reload();
-    for (const binding of this.bindings.values()) void this.run(binding);
+    while (this.running) {
+      if (!this.ready()) {
+        await wait(1_000);
+        continue;
+      }
+      for (const binding of this.bindings.values()) {
+        if (!this.running || !this.ready()) break;
+        try { await this.consumeDue(binding); }
+        catch (error) { console.error(`AgentSlack ${binding.id}: ${String(error.message || error).slice(0, 500)}`); }
+      }
+      await wait(3_000);
+    }
   }
 
   stop() { this.running = false; }
@@ -84,41 +96,6 @@ export class AgentSlackDeliveryAdapter {
     return body;
   }
 
-  async run(binding) {
-    let backoff = 1_000;
-    while (this.running) {
-      try {
-        await this.consumeDue(binding);
-        await this.stream(binding);
-        backoff = 1_000;
-      } catch (error) {
-        console.error(`AgentSlack ${binding.id}: ${String(error.message || error).slice(0, 500)}`);
-        await wait(backoff);
-        backoff = Math.min(30_000, backoff * 2);
-      }
-    }
-  }
-
-  async stream(binding) {
-    const response = await fetch(this.url(binding, '/api/v1/inbox/stream'), {
-      headers: { ...this.headers(binding), accept: 'text/event-stream' }, signal: AbortSignal.timeout(65_000),
-    });
-    if (!response.ok || !response.body) throw new Error(`agentslack_stream_http_${response.status}`);
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let pending = '';
-    for (;;) {
-      const item = await reader.read();
-      if (item.done) throw new Error('agentslack_stream_closed');
-      pending += decoder.decode(item.value, { stream: true });
-      const blocks = pending.replace(/\r\n/g, '\n').split('\n\n');
-      pending = blocks.pop() || '';
-      for (const block of blocks) {
-        if (block.includes('event: delivery.available')) await this.consumeDue(binding);
-      }
-    }
-  }
-
   async consumeDue(binding) {
     if (this.active.has(binding.id)) return;
     const due = await this.request(binding, '/api/v1/inbox/due?limit=1');
@@ -128,15 +105,39 @@ export class AgentSlackDeliveryAdapter {
     await this.request(binding, `/api/v1/inbox/${signal.deliveryId}/claim`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ leaseOwner, leaseSeconds: 3600 }),
     });
-    // Read without auto-ack: Agentworks only performs the canonical ACK once
-    // the exact target session has completed its durable wake turn.
-    const inbox = await this.request(binding, `/api/v1/inbox?auto_ack=false&limit=100`);
-    const delivery = (inbox.deliveries || []).find(item => item.id === signal.deliveryId);
-    const content = formatDelivery(binding, signal, delivery).slice(0, MAX_CONTENT);
+    console.error(`AgentSlack ${binding.id}: claimed delivery ${signal.deliveryId}`);
     const requestId = crypto.randomUUID();
     this.active.set(binding.id, { requestId, binding, signal, leaseOwner, state: 'claimed' });
-    this.submit({ requestId, bindingId: binding.id, targetSessionUuid: binding.targetSessionUuid,
-      externalDeliveryId: signal.deliveryId, externalMessageId: signal.messageId, content, binding: redactBinding(binding) });
+    try {
+      // Read exactly the claimed delivery without auto-ack. Using the consumer's
+      // implicit committed cursor can omit a claimed delivery after an earlier
+      // client advanced that cursor; an explicit cursor makes recovery stable.
+      const cursor = Math.max(0, signal.deliveryId - 1);
+      const inbox = await this.request(binding, `/api/v1/inbox?cursor=${cursor}&auto_ack=false&limit=1`);
+      const delivery = (inbox.deliveries || []).find(item => item.id === signal.deliveryId);
+      if (!delivery?.message) throw new Error(`agentslack_claimed_delivery_missing:${signal.deliveryId}`);
+      console.error(`AgentSlack ${binding.id}: loaded delivery ${signal.deliveryId}`);
+      const content = formatDelivery(binding, signal, delivery).slice(0, MAX_CONTENT);
+      const submitted = this.submit({ requestId, bindingId: binding.id, targetSessionUuid: binding.targetSessionUuid,
+        externalDeliveryId: signal.deliveryId, externalMessageId: signal.messageId, content, binding: redactBinding(binding) });
+      if (submitted === false) throw new Error('agentworks_worker_not_registered');
+      console.error(`AgentSlack ${binding.id}: submitted delivery ${signal.deliveryId}`);
+    } catch (error) {
+      await this.releaseClaim(binding, signal.deliveryId, leaseOwner, error);
+      this.active.delete(binding.id);
+      throw error;
+    }
+  }
+
+  async releaseClaim(binding, deliveryId, leaseOwner, error) {
+    try {
+      await this.request(binding, `/api/v1/inbox/${deliveryId}/nack`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ leaseOwner, error: String(error?.message || error).slice(0, 4000), retryAfterSeconds: 3 }),
+      });
+    } catch (releaseError) {
+      console.error(`AgentSlack ${binding.id} claim release: ${String(releaseError.message || releaseError).slice(0, 500)}`);
+    }
   }
 
   async accepted(message) {
@@ -147,6 +148,15 @@ export class AgentSlackDeliveryAdapter {
     });
     entry.state = 'accepted';
     entry.agentworksMessageId = message.agentworksMessageId;
+  }
+
+  async rejected(message) {
+    const entry = this.active.get(message.bindingId);
+    if (!entry || entry.requestId !== message.requestId) return;
+    const error = new Error(`agentworks_delivery_rejected:${String(message.error || 'unknown').slice(0, 400)}`);
+    await this.releaseClaim(entry.binding, entry.signal.deliveryId, entry.leaseOwner, error);
+    this.active.delete(message.bindingId);
+    console.error(`AgentSlack ${message.bindingId}: ${error.message}`);
   }
 
   async acknowledge(message) {

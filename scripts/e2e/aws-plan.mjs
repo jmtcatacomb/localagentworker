@@ -2,9 +2,9 @@
 /**
  * Read-only AWS discovery for the Agentworks OS E2E harness.
  *
- * Credentials come from the caller's AWS profile/role/environment. This command
- * never reads authinfo.md and never mutates AWS. `aws-apply.mjs` is intentionally
- * a separate future step, guarded by an explicit run ID and cleanup policy.
+ * Credentials normally come from `with-foragents-ssm.sh` as process-scoped
+ * environment variables. This command never reads authinfo.md, Keychain, or a
+ * local AWS profile and never mutates AWS.
  */
 import { execFileSync } from 'node:child_process';
 
