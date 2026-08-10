@@ -52,6 +52,10 @@ users:
       - $publicKey
 ssh_pwauth: false
 package_update: false
+growpart:
+  mode: auto
+  devices: [/]
+resize_rootfs: true
 "@
   # Windows PowerShell's UTF-8 encoding adds a BOM. NoCloud requires the
   # marker filenames/content to be plain text, so these intentionally use

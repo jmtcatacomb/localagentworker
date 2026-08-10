@@ -52,7 +52,12 @@ function Ensure-HypervBaseImage {
   $base=Join-Path $StateDir 'runtime\hyperv\base'
   $source=Join-Path $base 'ubuntu-24.04-generic.img'
   $vhdx=Join-Path $base 'ubuntu-24.04-generic.vhdx'
-  if(Test-Path $vhdx){ return }
+  $targetSize=40GB
+  if(Test-Path $vhdx){
+    $current=(Get-VHD -Path $vhdx).Size
+    if($current -lt $targetSize){ Resize-VHD -Path $vhdx -SizeBytes $targetSize }
+    return
+  }
   New-Item -ItemType Directory -Force $base | Out-Null
   if(!(Test-Path $source)) {
     $partial="$source.partial"
@@ -71,6 +76,7 @@ function Ensure-HypervBaseImage {
   if($LASTEXITCODE -ne 0){throw "Unable to decrypt the Hyper-V VHDX base image (cipher exit $LASTEXITCODE)."}
   & fsutil.exe sparse setflag $vhdx 0 | Out-Null
   if($LASTEXITCODE -ne 0){throw "Unable to clear the sparse flag on the Hyper-V VHDX base image (fsutil exit $LASTEXITCODE)."}
+  Resize-VHD -Path $vhdx -SizeBytes $targetSize
 }
 function Compose([string[]]$Arguments) {
   $wslRoot=ConvertTo-WslPath $Root
