@@ -172,6 +172,7 @@ case "${1:-help}" in
     compose exec -T master sh -lc 'codex --version && claude --version'
     for CELL in aw-a1 aw-b1; do
       if [ "$(uname -s)" = "Darwin" ]; then LIMA_HOME="$STATE_DIR/lima" limactl shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'
+      elif [ "${AGENTWORKS_LINUX_RUNTIME:-}" = "qemu" ]; then LIMA_HOME="$STATE_DIR/runtime" "$ROOT/worker/runtime/qemu-limactl.mjs" shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'
       else AGENTWORKS_GUEST_USER="$AGENTWORKS_GUEST_USER" AGENTWORKS_GUEST_UID="$AGENTWORKS_GUEST_UID" AGENTWORKS_GUEST_GID="$AGENTWORKS_GUEST_GID" AGENTWORKS_GUEST_HOME="$AGENTWORKS_GUEST_HOME" "$ROOT/worker/runtime/incus-limactl" shell -y "$CELL" bash -lc 'docker --version && codex --version && claude --version && command -v agentworks-bridge && codex mcp get agentworks-bridge >/dev/null && claude mcp get agentworks-bridge >/dev/null && test -f ~/.agentworks/agents-ready'; fi
     done
     echo "Agentworks smoke: ok"
@@ -194,10 +195,12 @@ case "${1:-help}" in
     echo "  Node: $(node --version 2>/dev/null || echo unavailable)"
     echo "  Lima: $(limactl --version 2>/dev/null || echo unavailable)"
     echo "  Incus/LXD: $(incus version 2>/dev/null || lxc version 2>/dev/null || echo unavailable)"
+    echo "  QEMU/KVM: $(qemu-system-x86_64 --version 2>/dev/null | head -1 || echo unavailable)"
     echo "  State: $STATE_DIR"
     compose ps
     if command -v limactl >/dev/null 2>&1; then LIMA_HOME="$STATE_DIR/lima" limactl list || true; elif [ "$(uname -s)" = "Linux" ]; then
-      if command -v incus >/dev/null 2>&1; then AGENTWORKS_LINUX_RUNTIME=incus AGENTWORKS_INCUS_BIN=incus "$ROOT/worker/runtime/incus-limactl" list || true
+      if [ "${AGENTWORKS_LINUX_RUNTIME:-}" = "qemu" ]; then LIMA_HOME="$STATE_DIR/runtime" "$ROOT/worker/runtime/qemu-limactl.mjs" list || true
+      elif command -v incus >/dev/null 2>&1; then AGENTWORKS_LINUX_RUNTIME=incus AGENTWORKS_INCUS_BIN=incus "$ROOT/worker/runtime/incus-limactl" list || true
       elif command -v lxc >/dev/null 2>&1; then AGENTWORKS_LINUX_RUNTIME=lxd AGENTWORKS_INCUS_BIN=lxc "$ROOT/worker/runtime/incus-limactl" list || true
       else "$ROOT/worker/runtime/incus-limactl" list || true; fi
     fi

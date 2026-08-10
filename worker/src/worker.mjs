@@ -1184,6 +1184,9 @@ if ! command -v claude >/dev/null 2>&1; then
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 grep -q 'HOME/.local/bin' "$HOME/.profile" || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
+# Some native CLI installers leave literal empty-quote commands in .profile.
+# They are harmless but make every noninteractive tenant command noisy.
+sed -i '/^""$/d' "$HOME/.profile"
 codex --version
 claude --version
 `;
