@@ -73,7 +73,22 @@ namespace Agentworks {
 function Ensure-BaseImage {
   $baseDir=Join-Path $root 'base'; $archive=Join-Path $baseDir 'ubuntu-24.04-azure.vhd.tar.gz'; $vhd=Join-Path $baseDir 'ubuntu-24.04-azure.vhd'
   New-Item -ItemType Directory -Force $baseDir | Out-Null
-  if (!(Test-Path $vhd)) { Invoke-WebRequest -UseBasicParsing -Uri $imageUrl -OutFile $archive; & tar.exe -xzf $archive -C $baseDir; $candidate=Get-ChildItem $baseDir -Filter '*.vhd' | Select-Object -First 1; if (!$candidate) { Fail 'Ubuntu Azure VHD archive did not contain a VHD' }; Move-Item -Force $candidate.FullName $vhd }
+  # Multiple cells may be provisioned concurrently; download/extract the shared
+  # base image exactly once across their separate adapter processes.
+  $mutex=New-Object System.Threading.Mutex($false,'Global\AgentworksHyperVBaseImage')
+  if (!$mutex.WaitOne([TimeSpan]::FromMinutes(20))) { Fail 'timed out waiting for the shared Hyper-V base image lock' }
+  try {
+    if (!(Test-Path $vhd)) {
+      $partial="$archive.partial"
+      Remove-Item -Force $partial -ErrorAction SilentlyContinue
+      Invoke-WebRequest -UseBasicParsing -Uri $imageUrl -OutFile $partial
+      Move-Item -Force $partial $archive
+      & tar.exe -xzf $archive -C $baseDir
+      $candidate=Get-ChildItem $baseDir -Filter '*.vhd' | Select-Object -First 1
+      if (!$candidate) { Fail 'Ubuntu Azure VHD archive did not contain a VHD' }
+      Move-Item -Force $candidate.FullName $vhd
+    }
+  } finally { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() }
   return $vhd
 }
 function Guest-Ip($meta) {
