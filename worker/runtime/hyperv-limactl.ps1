@@ -141,7 +141,11 @@ if ($command -eq 'create') {
   # Create the ISO from a staging directory. The instance root now contains
   # Hyper-V's locked VM configuration files, which must never be added to it.
   $seedDir=Join-Path $dir 'seed-input'; $guestMac=Guest-StaticMac $name; Set-VMNetworkAdapter -VMName $vm.Name -StaticMacAddress ($guestMac -replace ':',''); Write-SeedIso $seedDir ((Get-Content -Raw "$key.pub").Trim()) $guestIp $guestMac
-  Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false; Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $seedDir 'seed.iso') | Out-Null
+  Set-VMProcessor -VMName $vm.Name -Count $cpus; Set-VMMemory -VMName $vm.Name -DynamicMemoryEnabled $false
+  # New-VM defaults Generation-2 firmware to the Microsoft Windows secure-boot
+  # database. Generic Ubuntu cloud images are signed by the Microsoft UEFI CA.
+  Set-VMFirmware -VMName $vm.Name -EnableSecureBoot On -SecureBootTemplate 'MicrosoftUEFICertificateAuthority'
+  Add-VMDvdDrive -VMName $vm.Name -Path (Join-Path $seedDir 'seed.iso') | Out-Null
   Write-Meta $name ([pscustomobject]@{name=$name;cpus=$cpus;memoryMiB=$memoryGiB*1024;diskGiB=$diskGiB;guestIp=$guestIp;keyPath=$key;createdAt=(Get-Date).ToUniversalTime().ToString('o')}); exit 0
 }
 $rest=@($argvCopy | Select-Object -Skip 1 | Where-Object { $_ -ne '-y' })
