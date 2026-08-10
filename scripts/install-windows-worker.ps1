@@ -49,7 +49,11 @@ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Silent
 Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $keepaliveAction = New-ScheduledTaskAction -Execute $wsl -Argument '-d Ubuntu -u root -- bash -lc "while :; do sleep 3600; done"'
-$keepaliveTask = New-ScheduledTask -Action $keepaliveAction -Trigger $trigger -Settings $settings -Principal $principal -Description 'Keeps the WSL2 Linux Docker engine alive for Agentworks Master.'
+# WSL distributions are registered per Windows user, not per SYSTEM. S4U lets
+# this background task use the installing administrator's Ubuntu distro without
+# requiring an interactive RDP/SSH desktop session or persisting a password.
+$wslPrincipal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType S4U -RunLevel Highest
+$keepaliveTask = New-ScheduledTask -Action $keepaliveAction -Trigger $trigger -Settings $settings -Principal $wslPrincipal -Description 'Keeps the WSL2 Linux Docker engine alive for Agentworks Master.'
 Unregister-ScheduledTask -TaskName $keepaliveTaskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $keepaliveTaskName -InputObject $keepaliveTask -Force | Out-Null
 Start-ScheduledTask -TaskName $keepaliveTaskName
