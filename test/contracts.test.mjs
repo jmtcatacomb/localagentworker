@@ -117,6 +117,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   const awsPlan = fs.readFileSync('scripts/e2e/aws-plan.mjs', 'utf8');
   const releaseGate = fs.readFileSync('scripts/e2e/release-gate.mjs', 'utf8');
   const ubuntuLaunch = fs.readFileSync('scripts/e2e/aws-ubuntu-launch.mjs', 'utf8');
+  const windowsLaunch = fs.readFileSync('scripts/e2e/aws-windows-launch.mjs', 'utf8');
   const ubuntuBootstrap = fs.readFileSync('scripts/e2e/bootstrap-host-ubuntu.sh', 'utf8');
   const amazonLinuxBootstrap = fs.readFileSync('scripts/e2e/bootstrap-host-amazonlinux2.sh', 'utf8');
   const lxdForwarding = fs.readFileSync('worker/runtime/lxd-docker-forwarding.sh', 'utf8');
@@ -134,6 +135,9 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(ubuntuLaunch, /NestedVirtualization=enabled/);
   assert.match(ubuntuLaunch, /no-source-dest-check/);
   assert.match(ubuntuLaunch, /stop-not-terminate/);
+  assert.match(windowsLaunch, /AGENTWORKS_E2E_APPROVE.*launch-windows/);
+  assert.match(windowsLaunch, /OpenSSH.Server/);
+  assert.match(windowsLaunch, /Install-WindowsFeature -Name Hyper-V/);
   assert.match(ubuntuBootstrap, /AGENTWORKS_HOST_BOOTSTRAP/);
   assert.match(ubuntuBootstrap, /\/dev\/kvm/);
   assert.match(ubuntuBootstrap, /docker-compose-v2/);
