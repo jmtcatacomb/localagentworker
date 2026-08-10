@@ -254,6 +254,16 @@ test('agent activity, usage telemetry, and safe markdown are persisted', () => {
   assert.match(server, /'table', 'thead', 'tbody'/);
 });
 
+test('chat composer sends with Enter and live reasoning opens only until turn completion', () => {
+  const ui = fs.readFileSync('master/public/app.js', 'utf8');
+  assert.match(ui, /input\.addEventListener\('keydown'/);
+  assert.match(ui, /event\.key !== 'Enter' \|\| event\.shiftKey \|\| event\.isComposing/);
+  assert.match(ui, /form\.requestSubmit\(\)/);
+  assert.match(ui, /const autoOpen = streaming && type === 'reasoning'/);
+  assert.match(ui, /data-auto-open="true"/);
+  assert.match(ui, /:not\(\[data-auto-open\]\)/);
+});
+
 test('AgentSlack wake bindings keep tokens in Worker state and ACK only after exact-session completion', () => {
   const schema = fs.readFileSync('master/src/schema.sql', 'utf8');
   const server = fs.readFileSync('master/src/server.mjs', 'utf8');

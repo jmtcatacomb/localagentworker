@@ -127,7 +127,7 @@ function renderWorkspace() {
       <main class="workspace-grid">
         <section class="browser-pane pane"><header><span class="eyebrow">FOLDER BROWSER</span><h2>작업 폴더</h2></header><div id="folder-path" class="folder-path"></div><div id="folder-list" class="folder-list"><div class="loading-row">불러오는 중…</div></div></section>
         <section class="session-pane pane"><header><span class="eyebrow">KNOWN SESSIONS</span><h2>에이전트 세션</h2></header><form id="new-session" class="new-session-form"><input name="alias" placeholder="고유 alias (예: planner)" value="new-agent" maxlength="64" pattern="[A-Za-z0-9._-]+" required><div class="form-row"><select name="harness" id="harness-select"><option value="codex">Codex</option><option value="claude">Claude Code</option></select><select name="model" id="model-select"></select></div><div class="form-row"><select name="effort" id="effort-select"></select><button class="primary" type="submit">세션 생성</button></div><div class="selected-folder" title="${escapeHtml(state.path)}">cwd <code id="selected-cwd">${escapeHtml(state.path)}</code></div></form><div id="session-list" class="session-list">${sessionListHtml(state.sessions, state.activeSession?.session_uuid)}</div></section>
-        <section class="chat-pane pane"><div id="chat-header" class="chat-header">${chatHeaderHtml(state.activeSession)}</div><div id="chat-messages" class="chat-messages">${messagesHtml(state.messages, state.activeSession)}</div><form id="chat-form" class="chat-form"><textarea name="content" placeholder="선택한 세션에 메시지 보내기…" rows="3" ${state.activeSession ? '' : 'disabled'}></textarea><div class="chat-actions"><button id="session-stop" class="danger-button" type="button" hidden>중단</button><button id="chat-submit" class="primary" type="submit" ${state.activeSession ? '' : 'disabled'}>보내기</button></div></form></section>
+        <section class="chat-pane pane"><div id="chat-header" class="chat-header">${chatHeaderHtml(state.activeSession)}</div><div id="chat-messages" class="chat-messages">${messagesHtml(state.messages, state.activeSession)}</div><form id="chat-form" class="chat-form"><textarea name="content" placeholder="메시지 입력 · Enter 전송 / Shift+Enter 줄바꿈" rows="3" ${state.activeSession ? '' : 'disabled'}></textarea><div class="chat-actions"><button id="session-stop" class="danger-button" type="button" hidden>중단</button><button id="chat-submit" class="primary" type="submit" ${state.activeSession ? '' : 'disabled'}>보내기</button></div></form></section>
       </main>
       ${messagingDialogHtml(state.interSession)}
     </section>`;
@@ -138,6 +138,7 @@ function renderWorkspace() {
   document.querySelector('#harness-select').addEventListener('change', updateModelPicker);
   document.querySelector('#model-select').addEventListener('change', updateEffortPicker);
   document.querySelector('#chat-form').addEventListener('submit', sendChat);
+  wireChatComposer();
   document.querySelector('#session-stop').addEventListener('click', stopSession);
   document.querySelector('#refresh-usage')?.addEventListener('click', refreshUsage);
   updateModelPicker();
@@ -276,7 +277,7 @@ function renderLiveSession() {
   const messagesNode = document.querySelector('#chat-messages');
   if (!messagesNode || !workspace?.activeSession) return;
   const nearBottom = messagesNode.scrollHeight - messagesNode.scrollTop - messagesNode.clientHeight < 140;
-  const openEvents = new Set([...messagesNode.querySelectorAll('details[open][data-event-id]')].map(node => node.dataset.eventId));
+  const openEvents = new Set([...messagesNode.querySelectorAll('details[open][data-event-id]:not([data-auto-open])')].map(node => node.dataset.eventId));
   messagesNode.innerHTML = messagesHtml(workspace.messages, workspace.activeSession);
   for (const id of openEvents) {
     const node = [...messagesNode.querySelectorAll('[data-event-id]')].find(item => item.dataset.eventId === id);
@@ -286,6 +287,17 @@ function renderLiveSession() {
   wireSessionButtons();
   updateComposerState();
   if (nearBottom) scrollChat();
+}
+
+function wireChatComposer() {
+  const form = document.querySelector('#chat-form');
+  const input = form?.elements.content;
+  if (!form || !input) return;
+  input.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (!input.disabled && input.value.trim()) form.requestSubmit();
+  });
 }
 
 async function sendChat(event) {
@@ -560,7 +572,8 @@ function activityHtml(events, streaming = false) {
     const icon = ({ command: '›_', file_change: 'Δ', subagent: '◎', subagent_message: '↳', tool: '◇', web: '⌕', plan: '☷', reasoning: '∴', steering: '↪', compact: '↺', model: 'M' })[type] || '·';
     const running = ['started', 'inProgress', 'running'].includes(event.status);
     const status = running ? 'running' : event.status || '';
-    return `<details class="activity event-${escapeHtml(type)} ${running ? 'running' : ''}" data-event-id="${escapeHtml(event.id || `${type}:${index}`)}"><summary><i>${icon}</i><span>${escapeHtml(event.title || type)}</span><small>${escapeHtml(status)}</small></summary><div class="activity-body">${activityBody(event, index)}</div></details>`;
+    const autoOpen = streaming && type === 'reasoning';
+    return `<details class="activity event-${escapeHtml(type)} ${running ? 'running' : ''}" data-event-id="${escapeHtml(event.id || `${type}:${index}`)}" ${autoOpen ? 'open data-auto-open="true"' : ''}><summary><i>${icon}</i><span>${escapeHtml(event.title || type)}</span><small>${escapeHtml(status)}</small></summary><div class="activity-body">${activityBody(event, index)}</div></details>`;
   }).join('');
   return `<section class="activity-timeline"><details class="activity-group" ${streaming ? 'open' : ''}><summary class="activity-heading"><span>${streaming ? 'LIVE ACTIVITY' : 'ACTIVITY'}</span><b>${ordered.length}</b><em>${escapeHtml(summary)}</em></summary><div class="activity-events">${items}</div></details></section>`;
 }

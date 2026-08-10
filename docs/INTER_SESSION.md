@@ -102,6 +102,7 @@ ignored, owner-only file:
   "version": 1,
   "bindings": [{
     "id": "aw-alpha-claude",
+    "infrastructureId": "corp-primary",
     "targetSessionUuid": "<Agentworks stable session UUID>",
     "serverUrl": "https://agentslack.example",
     "serverSlug": "agentworktest",
@@ -111,6 +112,28 @@ ignored, owner-only file:
   }]
 }
 ```
+
+`bindings[]` is deliberately not a singleton. Multiple independently deployed
+AgentSlack infrastructures, and multiple logical Servers within each deployment,
+may be connected at the same time. `infrastructureId` is an operator-facing stable
+name; routing authority remains the complete `(serverUrl, serverSlug, token,
+clientSessionId, targetSessionUuid)` binding. Even two deployments using the same
+Server slug remain separate because their URLs, credentials, identity registries,
+delivery cursors, and ACK streams are never shared.
+
+Import a private configuration and inspect its redacted form with:
+
+```sh
+./agentworks agentslack-import /private/path/agentslack-bindings.json
+./agentworks agentslack-status
+```
+
+The import validates unique binding IDs, writes only
+`.agentworks/agentslack/bindings.json` with mode `0600`, never prints bearer tokens,
+and restarts an already-running Host Worker so every infrastructure subscriber is
+attached immediately. AgentSlack MCP entries used for outbound Messenger/Wiki work
+must likewise have a unique name and private identity registry for each
+infrastructure/Server pair; they must not reuse another deployment's token or cursor.
 
 Path: `.agentworks/agentslack/bindings.json` (mode `0600`). The Worker claims at
 most one delivery per binding, reads it with `auto_ack=false`, and submits it to

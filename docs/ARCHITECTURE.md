@@ -96,6 +96,14 @@ the Worker stops, edits, and restarts a running Lima VM. Cells may flexibly shar
 host capacity because there is no aggregate reservation in the MVP. A future
 scheduler will enforce host reserve, CPU overcommit, and active-memory admission.
 
+Configured vCPU and memory values are running-VM limits, not boot-time host
+reservations. A fully stopped Lima/VZ VM on macOS, Incus or QEMU/KVM VM on Linux,
+or Hyper-V VM on Windows has no tenant vCPU time or guest RAM held for it. Its disk,
+configuration, workspace, CLI credentials, and session state remain on persistent
+storage. This guarantee applies to `stop`/power-off, not suspend, pause, or saved-state
+modes, which may retain a memory image. The always-running Master/Worker/runtime
+management processes still consume their own small independent overhead.
+
 ## Protocol boundary
 
 Worker messages currently include:
