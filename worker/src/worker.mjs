@@ -1089,7 +1089,10 @@ while True:
    except OSError: pass
    break
   s.sendall(data)`;
-    const child = spawnRuntime(['shell', '-y', cell.runtime_name, 'python3', '-u', '-c', copyScript, String(guestPort)], {
+    // The bridge script flushes every write itself.  Avoid `-u` here so the
+    // Hyper-V command adapter can carry the program through its safe `-c`
+    // transport on Windows as well.
+    const child = spawnRuntime(['shell', '-y', cell.runtime_name, 'python3', '-c', copyScript, String(guestPort)], {
       env: { ...process.env, LIMA_HOME: limaHome }, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const pair = { hostSocket, child };
