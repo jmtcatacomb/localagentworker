@@ -50,14 +50,15 @@ const quoted = value => String(value).replaceAll('"', '\\"');
 const envLines = Object.entries(environment).map(([key, value]) => `Environment="${key}=${quoted(value)}"`).join('\n');
 const runtimeGroup = runtime === 'incus' ? 'incus-admin' : runtime === 'lxd' ? 'lxd' : runtime === 'qemu' ? 'kvm' : '';
 let runtimeDependency = '';
-if (runtime === 'lxd') {
+if (runtime === 'lxd' || runtime === 'incus') {
+  const runtimeBridge = runtime === 'incus' ? 'incusbr0' : 'lxdbr0';
   const forwardingTarget = '/usr/local/lib/agentworks/lxd-docker-forwarding';
-  const forwardingUnitName = 'agentworks-lxd-docker-forwarding.service';
+  const forwardingUnitName = 'agentworks-vm-docker-forwarding.service';
   const forwardingUnitPath = path.join(stateDir, 'generated', forwardingUnitName);
   execFileSync('sudo', ['install', '-D', '-m', '0755', lxdForwardingSource, forwardingTarget], { stdio: 'inherit' });
   // This runs as root in its own unit. ExecStartPre inherits the Worker `User`
   // and therefore cannot safely inspect or modify host iptables rules.
-  const forwardingUnit = `[Unit]\nDescription=Agentworks LXD forwarding after Docker\nAfter=docker.service snap.lxd.daemon.service network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart=/bin/sh -c 'for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do ${forwardingTarget} lxdbr0; iptables -C DOCKER-USER -i lxdbr0 -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n`;
+  const forwardingUnit = `[Unit]\nDescription=Agentworks ${runtime} VM forwarding after Docker\nAfter=docker.service ${runtimeAfterService(runtime)} network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart=/bin/sh -c 'for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do ${forwardingTarget} ${runtimeBridge}; iptables -C DOCKER-USER -i ${runtimeBridge} -j ACCEPT 2>/dev/null && exit 0; sleep 1; done; exit 1'\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n`;
   fs.mkdirSync(path.dirname(forwardingUnitPath), { recursive: true });
   fs.writeFileSync(forwardingUnitPath, forwardingUnit, { mode: 0o600 });
   execFileSync('sudo', ['install', '-m', '0644', forwardingUnitPath, `/etc/systemd/system/${forwardingUnitName}`], { stdio: 'inherit' });
@@ -78,4 +79,8 @@ console.log(`localagentworker installed: /etc/systemd/system/${unitName}`);
 
 function commandExists(command) {
   try { execFileSync('which', [command], { stdio: 'ignore' }); return true; } catch { return false; }
+}
+
+function runtimeAfterService(selectedRuntime) {
+  return selectedRuntime === 'incus' ? 'incus.service' : 'snap.lxd.daemon.service';
 }

@@ -141,6 +141,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.doesNotMatch(foragents, /security find|docker login|authinfo\.md/);
   assert.match(foragents, /unset AWS_SESSION_TOKEN AWS_PROFILE AWS_DEFAULT_PROFILE/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
+  assert.match(systemd, /runtime === 'lxd' \|\| runtime === 'incus'/);
+  assert.match(systemd, /runtimeBridge = runtime === 'incus' \? 'incusbr0' : 'lxdbr0'/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
   assert.match(adapter, /images:ubuntu\/24\.04\/cloud/);
   assert.match(adapter, /ubuntu:24\.04/);
