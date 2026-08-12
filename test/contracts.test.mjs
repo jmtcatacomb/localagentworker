@@ -110,6 +110,13 @@ test('superadmin can create a tenant cell without exposing its initial password 
   assert.doesNotMatch(smoke, /admin\.cells\.length !== 2/);
 });
 
+test('seeded superadmin may own a tenant without creating a duplicate email user', () => {
+  const server = fs.readFileSync('master/src/server.mjs', 'utf8');
+  assert.match(server, /alphaEmail === masterEmail \? 'user-master' : 'user-alpha'/);
+  assert.match(server, /alphaOwnerId === 'user-master' \? \[\] :/);
+  assert.match(server, /slug: 'alpha'.*user: alphaOwnerId/);
+});
+
 test('Linux host adapter preserves the Worker command boundary and requires VM hardware support', () => {
   const installer = fs.readFileSync('agentworks', 'utf8');
   const systemd = fs.readFileSync('scripts/install-systemd.mjs', 'utf8');
@@ -145,6 +152,8 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(worker, /directHypervAdapter/);
   assert.match(worker, /'-File', hypervAdapterScript/);
   assert.match(preflight, /\/dev\/kvm/);
+  assert.match(ubuntuBootstrap, /docker compose version/);
+  assert.match(ubuntuBootstrap, /usermod -aG docker/);
   assert.match(awsPlan, /read-only-aws-plan/);
   assert.match(fetchCompat, /--experimental-fetch/);
   assert.match(awsPlan, /nestedVirtualization/);

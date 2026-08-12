@@ -19,18 +19,21 @@ if [ ! -e /dev/kvm ]; then
   exit 2
 fi
 
-need_docker=false
-command -v docker >/dev/null 2>&1 || need_docker=true
 if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
   sudo apt-get update
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git python3 build-essential
 fi
-if [ "$need_docker" = true ]; then
+if ! command -v docker >/dev/null 2>&1; then
   sudo apt-get update
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2
-  sudo systemctl enable --now docker
-  sudo usermod -aG docker "${SUDO_USER:-$USER}"
 fi
+if ! docker compose version >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2
+fi
+sudo systemctl enable --now docker
+sudo usermod -aG docker "${SUDO_USER:-$USER}"
+getent group kvm >/dev/null 2>&1 && sudo usermod -aG kvm "${SUDO_USER:-$USER}"
 
 node_major=0
 if command -v node >/dev/null 2>&1; then node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0); fi

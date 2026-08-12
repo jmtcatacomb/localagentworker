@@ -953,10 +953,14 @@ async function initialize() {
 }
 
 async function seed() {
+  const masterEmail = required('MASTER_EMAIL').toLowerCase();
+  const alphaEmail = required('TENANT_ALPHA_EMAIL').toLowerCase();
+  const betaEmail = required('TENANT_BETA_EMAIL').toLowerCase();
+  const alphaOwnerId = alphaEmail === masterEmail ? 'user-master' : 'user-alpha';
   const definitions = [
-    { id: 'user-master', email: required('MASTER_EMAIL'), password: required('MASTER_PASSWORD'), role: 'superadmin' },
-    { id: 'user-alpha', email: required('TENANT_ALPHA_EMAIL'), password: required('TENANT_ALPHA_PASSWORD'), role: 'tenant' },
-    { id: 'user-beta', email: required('TENANT_BETA_EMAIL'), password: required('TENANT_BETA_PASSWORD'), role: 'tenant' },
+    { id: 'user-master', email: masterEmail, password: required('MASTER_PASSWORD'), role: 'superadmin' },
+    ...(alphaOwnerId === 'user-master' ? [] : [{ id: 'user-alpha', email: alphaEmail, password: required('TENANT_ALPHA_PASSWORD'), role: 'tenant' }]),
+    { id: 'user-beta', email: betaEmail, password: required('TENANT_BETA_PASSWORD'), role: 'tenant' },
   ];
   for (const user of definitions) {
     const hash = await bcrypt.hash(user.password, 12);
@@ -968,7 +972,7 @@ async function seed() {
   }
   for (const tenant of [
     { id: 'tenant-system', slug: 'system', name: 'Master Control Plane', user: 'user-master', cell: 'cell-master', runtime: 'master-agent', kind: 'master' },
-    { id: 'tenant-alpha', slug: 'alpha', name: 'Tenant Alpha', user: 'user-alpha', cell: 'cell-alpha', runtime: 'aw-a1' },
+    { id: 'tenant-alpha', slug: 'alpha', name: 'Tenant Alpha', user: alphaOwnerId, cell: 'cell-alpha', runtime: 'aw-a1' },
     { id: 'tenant-beta', slug: 'beta', name: 'Tenant Beta', user: 'user-beta', cell: 'cell-beta', runtime: 'aw-b1' },
   ]) {
     await pool.query('INSERT INTO tenants (id,slug,display_name) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET display_name=$3', [tenant.id, tenant.slug, tenant.name]);
