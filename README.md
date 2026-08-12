@@ -109,6 +109,11 @@ Claude Code's native installer and browser authentication are documented in the
 No command above deletes `.agentworks/` or tenant VMs. Destructive purge is
 intentionally absent from this MVP.
 
+Host-specific Docker network attachments may be kept outside Git in
+`.agentworks/config/compose.override.yaml`. The launcher automatically layers
+that file over `compose.yaml`, so private-network bindings survive rebuilds and
+upgrades without making one host's network names part of the portable source.
+
 ## Current scope
 
 - Master login, superadmin and two tenant owners

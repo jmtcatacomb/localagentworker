@@ -23,7 +23,12 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 compose() {
-  docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" "$@"
+  OVERRIDE_FILE="$STATE_DIR/config/compose.override.yaml"
+  if [ -f "$OVERRIDE_FILE" ]; then
+    docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" -f "$OVERRIDE_FILE" "$@"
+  else
+    docker compose --project-directory "$ROOT" --env-file "$ENV_FILE" -f "$ROOT/compose.yaml" "$@"
+  fi
 }
 
 bootstrap_config() {

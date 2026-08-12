@@ -4,7 +4,10 @@ import test from 'node:test';
 
 test('runtime state is ignored', () => {
   const ignore = fs.readFileSync('.gitignore', 'utf8');
+  const installer = fs.readFileSync('agentworks', 'utf8');
   assert.match(ignore, /^\.agentworks\/$/m);
+  assert.match(installer, /config\/compose\.override\.yaml/);
+  assert.match(installer, /-f "\$OVERRIDE_FILE"/);
 });
 
 test('inter-session delivery has stable identity, channels, and durable queue state', () => {
