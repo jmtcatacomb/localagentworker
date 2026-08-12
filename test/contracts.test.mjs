@@ -142,6 +142,7 @@ test('Linux host adapter preserves the Worker command boundary and requires VM h
   assert.match(foragents, /unset AWS_SESSION_TOKEN AWS_PROFILE AWS_DEFAULT_PROFILE/);
   assert.match(systemd, /SupplementaryGroups=\$\{runtimeGroup\}/);
   assert.match(adapter, /\['launch', image, name, '--vm'/);
+  assert.match(adapter, /images:ubuntu\/24\.04\/cloud/);
   assert.match(adapter, /ubuntu:24\.04/);
   assert.match(adapter, /\['exec', name, \.\.\.identity, '--'/);
   assert.match(adapter, /else process\.stdout\.write\(chunk\)/);

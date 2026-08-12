@@ -45,10 +45,11 @@ if (command === 'list') {
   const memory = option('--memory') || '4';
   const disk = option('--disk') || '40';
   if (!name) fail('create requires --name');
-  // `ubuntu:24.04` is present on the Ubuntu remote supplied by both LXD and
-  // Incus. With `--vm`, each runtime resolves its VM image variant. The old
-  // `images:ubuntu/24.04/cloud` alias is not available on Ubuntu's LXD remote.
-  const image = process.env.AGENTWORKS_GUEST_IMAGE || 'ubuntu:24.04';
+  // Canonical LXD exposes `ubuntu:24.04`, while distro-packaged Incus ships
+  // the Linux Containers remote and its cloud alias. With `--vm`, each runtime
+  // resolves the virtual-machine variant rather than the container image.
+  const defaultImage = /(^|\/)incus$/.test(cli) ? 'images:ubuntu/24.04/cloud' : 'ubuntu:24.04';
+  const image = process.env.AGENTWORKS_GUEST_IMAGE || defaultImage;
   invoke(['launch', image, name, '--vm', '-c', `limits.cpu=${cpus}`, '-c', `limits.memory=${memory}GiB`, '-d', `root,size=${disk}GiB`]);
 } else if (command === 'start' || command === 'stop') {
   const name = argv.filter(value => value !== command && value !== '-y').at(-1);
