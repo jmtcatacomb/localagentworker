@@ -22,31 +22,39 @@ if (admin.user.role !== 'superadmin' || !adminTenantSlugs.has('alpha') || !admin
   throw new Error('superadmin scope mismatch');
 }
 
-const tenantCookie = await login(process.env.TENANT_ALPHA_EMAIL, process.env.TENANT_ALPHA_PASSWORD);
+const alphaOwnedByAdmin = process.env.TENANT_ALPHA_EMAIL.toLowerCase() === process.env.MASTER_EMAIL.toLowerCase();
+const tenantSlug = alphaOwnedByAdmin ? 'beta' : 'alpha';
+const otherTenantSlug = tenantSlug === 'alpha' ? 'beta' : 'alpha';
+const tenantCell = `cell-${tenantSlug}`;
+const otherTenantCell = `cell-${otherTenantSlug}`;
+const tenantCookie = await login(
+  alphaOwnedByAdmin ? process.env.TENANT_BETA_EMAIL : process.env.TENANT_ALPHA_EMAIL,
+  alphaOwnedByAdmin ? process.env.TENANT_BETA_PASSWORD : process.env.TENANT_ALPHA_PASSWORD,
+);
 const tenant = await fetch(`${base}/api/overview`, { headers: { cookie: tenantCookie } }).then(response => response.json());
-if (tenant.user.role !== 'tenant' || tenant.cells.length !== 1 || tenant.cells[0].tenant_slug !== 'alpha') throw new Error('tenant scope mismatch');
+if (tenant.user.role !== 'tenant' || tenant.cells.length !== 1 || tenant.cells[0].tenant_slug !== tenantSlug) throw new Error('tenant scope mismatch');
 
-const denied = await fetch(`${base}/api/cells/cell-beta/actions`, {
+const denied = await fetch(`${base}/api/cells/${otherTenantCell}/actions`, {
   method: 'POST', headers: { cookie: tenantCookie, 'content-type': 'application/json' }, body: JSON.stringify({ action: 'start' }),
 });
 if (denied.status !== 404) throw new Error(`cross-tenant action was not denied: ${denied.status}`);
 
-const workspace = await fetch(`${base}/api/cells/cell-alpha/workspace`, { headers: { cookie: tenantCookie } }).then(response => response.json());
+const workspace = await fetch(`${base}/api/cells/${tenantCell}/workspace`, { headers: { cookie: tenantCookie } }).then(response => response.json());
 if (!workspace.defaultPath || !Array.isArray(workspace.models?.codex) || !Array.isArray(workspace.models?.claude)) throw new Error('workspace description mismatch');
 
-const directory = await fetch(`${base}/api/cells/cell-alpha/files?path=${encodeURIComponent(workspace.defaultPath)}`, { headers: { cookie: tenantCookie } }).then(response => response.json());
+const directory = await fetch(`${base}/api/cells/${tenantCell}/files?path=${encodeURIComponent(workspace.defaultPath)}`, { headers: { cookie: tenantCookie } }).then(response => response.json());
 if (directory.path !== workspace.defaultPath || !Array.isArray(directory.items)) throw new Error('workspace browser mismatch');
 
 for (const target of [
-  `${base}/api/cells/cell-beta/files?path=/`,
-  `${base}/api/cells/cell-beta/sessions`,
-  `${base}/api/cells/cell-beta/usage`,
+  `${base}/api/cells/${otherTenantCell}/files?path=/`,
+  `${base}/api/cells/${otherTenantCell}/sessions`,
+  `${base}/api/cells/${otherTenantCell}/usage`,
 ]) {
   const response = await fetch(target, { headers: { cookie: tenantCookie } });
   if (response.status !== 404) throw new Error(`cross-tenant workspace access was not denied: ${response.status}`);
 }
 
-const usageResponse = await fetch(`${base}/api/cells/cell-alpha/usage`, { headers: { cookie: tenantCookie } });
+const usageResponse = await fetch(`${base}/api/cells/${tenantCell}/usage`, { headers: { cookie: tenantCookie } });
 const usage = await usageResponse.json();
 if (!usageResponse.ok || !usage.providers?.codex || !Array.isArray(usage.sessions) || !Array.isArray(usage.models)) {
   throw new Error('usage telemetry mismatch');

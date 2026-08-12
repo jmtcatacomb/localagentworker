@@ -112,9 +112,12 @@ test('superadmin can create a tenant cell without exposing its initial password 
 
 test('seeded superadmin may own a tenant without creating a duplicate email user', () => {
   const server = fs.readFileSync('master/src/server.mjs', 'utf8');
+  const smoke = fs.readFileSync('scripts/smoke.mjs', 'utf8');
   assert.match(server, /alphaEmail === masterEmail \? 'user-master' : 'user-alpha'/);
   assert.match(server, /alphaOwnerId === 'user-master' \? \[\] :/);
   assert.match(server, /slug: 'alpha'.*user: alphaOwnerId/);
+  assert.match(smoke, /alphaOwnedByAdmin \? process\.env\.TENANT_BETA_EMAIL/);
+  assert.match(smoke, /otherTenantCell/);
 });
 
 test('Linux host adapter preserves the Worker command boundary and requires VM hardware support', () => {
